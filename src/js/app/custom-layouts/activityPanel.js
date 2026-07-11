@@ -1,3 +1,5 @@
+import { subscribeDomChanges } from '../../runtime/domObserver.js'
+
 /**
  * Tags the Activity sidebar and its light child surfaces so CSS can target them
  * without depending on ChatGPT's generated class names.
@@ -21,7 +23,7 @@ const SURFACE_SELECTOR = [
 ].join(',')
 
 let active = false
-let observer = null
+let removeDomListener = null
 const markedPanels = new Set()
 const markedSurfaces = new Set()
 
@@ -100,7 +102,7 @@ function scan() {
 	processElement(root)
 }
 
-function onMutations(records) {
+function onDomChanges(records) {
 	for (const record of records) {
 		for (const node of record.removedNodes) releaseElement(node)
 		for (const node of record.addedNodes) processElement(node)
@@ -111,14 +113,13 @@ function mount() {
 	if (active) return cleanup
 	active = true
 	scan()
-	observer = new MutationObserver(onMutations)
-	observer.observe(document.body, { childList: true, subtree: true })
+	removeDomListener = subscribeDomChanges(onDomChanges)
 	return cleanup
 }
 
 function cleanup() {
-	observer?.disconnect()
-	observer = null
+	removeDomListener?.()
+	removeDomListener = null
 	active = false
 	for (const panel of markedPanels) panel.removeAttribute(PANEL_ATTR)
 	for (const surface of markedSurfaces) surface.removeAttribute(SURFACE_ATTR)
