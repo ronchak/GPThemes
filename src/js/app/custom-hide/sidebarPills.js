@@ -1,15 +1,30 @@
+import { subscribeDomChanges } from '../../runtime/domObserver.js'
+
 const PILL_ATTR = 'data-gpth-sidebar-pill'
 const PILL_WRAPPER_ATTR = 'data-gpth-sidebar-pill-wrapper'
 const LABEL_SELECTOR = '.__menu-label'
 
 const PILL_LABELS = new Set(['recents', 'gpts'])
 
-let observer = null
+let removeDomListener = null
 const markedLabels = new Set()
 const markedWrappers = new Set()
+const wrapperByLabel = new Map()
 
 function normalizeLabel(text = '') {
 	return text.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function unmarkLabel(label) {
+	label.removeAttribute(PILL_ATTR)
+	markedLabels.delete(label)
+
+	const wrapper = wrapperByLabel.get(label)
+	if (wrapper) {
+		wrapper.removeAttribute(PILL_WRAPPER_ATTR)
+		markedWrappers.delete(wrapper)
+		wrapperByLabel.delete(label)
+	}
 }
 
 function updateLabel(label) {
@@ -17,21 +32,20 @@ function updateLabel(label) {
 
 	const normalized = normalizeLabel(label.textContent)
 	const wrapper = label.closest('button')
-	if (PILL_LABELS.has(normalized)) {
-		label.setAttribute(PILL_ATTR, normalized)
-		markedLabels.add(label)
-		if (wrapper) {
-			wrapper.setAttribute(PILL_WRAPPER_ATTR, normalized)
-			markedWrappers.add(wrapper)
-		}
+	const previousWrapper = wrapperByLabel.get(label)
+	if (previousWrapper && previousWrapper !== wrapper) unmarkLabel(label)
+
+	if (!PILL_LABELS.has(normalized)) {
+		unmarkLabel(label)
 		return
 	}
 
-	label.removeAttribute(PILL_ATTR)
-	markedLabels.delete(label)
+	label.setAttribute(PILL_ATTR, normalized)
+	markedLabels.add(label)
 	if (wrapper) {
-		wrapper.removeAttribute(PILL_WRAPPER_ATTR)
-		markedWrappers.delete(wrapper)
+		wrapper.setAttribute(PILL_WRAPPER_ATTR, normalized)
+		markedWrappers.add(wrapper)
+		wrapperByLabel.set(label, wrapper)
 	}
 }
 
@@ -48,12 +62,9 @@ function releaseElement(element) {
 	if (!(element instanceof Element)) return
 
 	const labels = []
-	if (element.hasAttribute(PILL_ATTR)) labels.push(element)
-	labels.push(...element.querySelectorAll(`[${PILL_ATTR}]`))
-	for (const label of labels) {
-		label.removeAttribute(PILL_ATTR)
-		markedLabels.delete(label)
-	}
+	if (element.matches(LABEL_SELECTOR)) labels.push(element)
+	labels.push(...element.querySelectorAll(LABEL_SELECTOR))
+	for (const label of labels) unmarkLabel(label)
 
 	const wrappers = []
 	if (element.hasAttribute(PILL_WRAPPER_ATTR)) wrappers.push(element)
@@ -61,45 +72,47 @@ function releaseElement(element) {
 	for (const wrapper of wrappers) {
 		wrapper.removeAttribute(PILL_WRAPPER_ATTR)
 		markedWrappers.delete(wrapper)
+		for (const [label, mappedWrapper] of wrapperByLabel) {
+			if (mappedWrapper === wrapper) wrapperByLabel.delete(label)
+		}
 	}
 }
 
 function syncSidebarPillMarkers() {
+	for (const label of [...markedLabels]) {
+		if (!label.isConnected || !label.matches(LABEL_SELECTOR)) unmarkLabel(label)
+	}
 	for (const label of document.querySelectorAll(LABEL_SELECTOR)) updateLabel(label)
 }
 
-function onMutations(records) {
+function onDomChanges(records) {
 	for (const record of records) {
-		if (record.type === 'characterData') {
-			processElement(record.target.parentElement)
-			continue
-		}
 		for (const node of record.removedNodes) releaseElement(node)
 		for (const node of record.addedNodes) {
-			processElement(node instanceof Element ? node : node.parentElement)
+			if (node instanceof Element) {
+				processElement(node)
+			} else if (node.parentElement?.closest(LABEL_SELECTOR)) {
+				processElement(node.parentElement)
+			}
 		}
 	}
 }
 
 function observeSidebarPillMarkers() {
-	if (observer || !document.body) return
+	if (removeDomListener || !document.body) return
 
 	syncSidebarPillMarkers()
-	observer = new MutationObserver(onMutations)
-	observer.observe(document.body, {
-		characterData: true,
-		childList: true,
-		subtree: true,
-	})
+	removeDomListener = subscribeDomChanges(onDomChanges)
 }
 
 function disconnectSidebarPillMarkers() {
-	observer?.disconnect()
-	observer = null
-	for (const label of markedLabels) label.removeAttribute(PILL_ATTR)
+	removeDomListener?.()
+	removeDomListener = null
+	for (const label of [...markedLabels]) unmarkLabel(label)
 	for (const wrapper of markedWrappers) wrapper.removeAttribute(PILL_WRAPPER_ATTR)
 	markedLabels.clear()
 	markedWrappers.clear()
+	wrapperByLabel.clear()
 }
 
 export { disconnectSidebarPillMarkers, observeSidebarPillMarkers, syncSidebarPillMarkers }
