@@ -82,6 +82,7 @@ const storageKeys = {
 	SK_WIDTH_IS_FULL_ENABLED_LEGACY: 'widthIsFullEnabled',
 	SK_WIDTH_IS_SYNC_ENABLED_LEGACY: 'widthIsSyncEnabled',
 	SK_WIDTH_SETTINGS: 'widthSettings',
+	WIDTH_FLAGS_FORMAT_NAMED: 'named',
 	WIDTH_FLAGS_FORMAT_SWAPPED: 'swapped',
 }
 
@@ -239,15 +240,22 @@ test('width hydration preserves swapped legacy semantics before and after schema
 	assert.equal(advanced.sync, true)
 })
 
-test('missing and unknown legacy provenance preserves named flags', async () => {
-	for (const dbVersion of [undefined, '0.9', '1.1']) {
+test('missing legacy provenance follows tagged releases while known named schemas stay named', async () => {
+	const missing = await hydrateWidthFlags({
+		widthIsFullEnabled: true,
+		widthIsSyncEnabled: false,
+	})
+	assert.equal(missing.fullWidth, false)
+	assert.equal(missing.sync, true)
+
+	for (const dbVersion of ['0.9', '1.1']) {
 		const named = await hydrateWidthFlags({
 			_dbVersion: dbVersion,
 			widthIsFullEnabled: true,
 			widthIsSyncEnabled: false,
 		})
-		assert.equal(named.fullWidth, true, `full flag at schema ${dbVersion ?? 'missing'}`)
-		assert.equal(named.sync, false, `sync flag at schema ${dbVersion ?? 'missing'}`)
+		assert.equal(named.fullWidth, true, `full flag at schema ${dbVersion}`)
+		assert.equal(named.sync, false, `sync flag at schema ${dbVersion}`)
 	}
 })
 
@@ -274,7 +282,7 @@ test('versioned width keys take precedence over legacy writes', async () => {
 	assert.equal(sparseCurrent.sync, true)
 })
 
-test('width saves use versioned keys and dual-write legacy semantics', async () => {
+test('width saves preserve the active legacy encoding and recovery semantics', async () => {
 	const harness = await hydrateWidthFlags({
 		_widthFlagsLegacyFormat: 'named',
 		widthIsFullEnabled: true,
@@ -291,9 +299,9 @@ test('width saves use versioned keys and dual-write legacy semantics', async () 
 			widthSettings: { w_chat_gpt: '100%' },
 			widthIsSyncEnabledV2: false,
 			widthIsFullEnabledV2: true,
-			widthIsFullEnabled: false,
-			widthIsSyncEnabled: true,
-			_widthFlagsLegacyFormat: 'swapped',
+			widthIsFullEnabled: true,
+			widthIsSyncEnabled: false,
+			_widthFlagsLegacyFormat: 'named',
 		},
 	])
 
@@ -306,4 +314,23 @@ test('width saves use versioned keys and dual-write legacy semantics', async () 
 	})
 	assert.equal(recovery.fullWidth, true)
 	assert.equal(recovery.sync, false)
+
+	const swappedHarness = await hydrateWidthFlags({
+		_dbVersion: '1.0',
+		widthIsFullEnabled: true,
+		widthIsSyncEnabled: false,
+	})
+	await swappedHarness.saveState({
+		fullWidthEnabled: true,
+		settings: { w_chat_gpt: '100%' },
+		syncEnabled: false,
+	})
+	assert.deepEqual(swappedHarness.writes.at(-1), {
+		widthSettings: { w_chat_gpt: '100%' },
+		widthIsSyncEnabledV2: false,
+		widthIsFullEnabledV2: true,
+		widthIsFullEnabled: false,
+		widthIsSyncEnabled: true,
+		_widthFlagsLegacyFormat: 'swapped',
+	})
 })

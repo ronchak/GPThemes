@@ -3,6 +3,8 @@ import {
 	SK_DB_VERSION,
 	SK_EXT_VERSION,
 	SK_WIDTH_FLAGS_LEGACY_FORMAT,
+	SK_WIDTH_IS_FULL_ENABLED_LEGACY,
+	SK_WIDTH_IS_SYNC_ENABLED_LEGACY,
 	WIDTH_FLAGS_FORMAT_NAMED,
 	WIDTH_FLAGS_FORMAT_SWAPPED,
 } from '../app/config/consts-storage'
@@ -32,15 +34,24 @@ function isBeforeVersion(currentVersion, targetVersion) {
 }
 
 export async function checkAndCleanStorage() {
-	const storedMigrationState = await getItemsStrict([SK_DB_VERSION])
+	const storedMigrationState = await getItemsStrict([
+		SK_DB_VERSION,
+		SK_WIDTH_IS_FULL_ENABLED_LEGACY,
+		SK_WIDTH_IS_SYNC_ENABLED_LEGACY,
+	])
 	const dbStoredVersion = storedMigrationState[SK_DB_VERSION]
 
 	if (!dbStoredVersion || isBeforeVersion(dbStoredVersion, DB_VERSION)) {
 		console.log(`⚠️ Storage migration needed: ${dbStoredVersion || 'none'} → ${DB_VERSION}`)
+		const hasLegacyWidthFlags =
+			typeof storedMigrationState[SK_WIDTH_IS_FULL_ENABLED_LEGACY] === 'boolean' ||
+			typeof storedMigrationState[SK_WIDTH_IS_SYNC_ENABLED_LEGACY] === 'boolean'
 		const updates = {
 			[SK_DB_VERSION]: DB_VERSION,
 			[SK_WIDTH_FLAGS_LEGACY_FORMAT]:
-				dbStoredVersion === '1.0' ? WIDTH_FLAGS_FORMAT_SWAPPED : WIDTH_FLAGS_FORMAT_NAMED,
+				dbStoredVersion === '1.0' || (!dbStoredVersion && hasLegacyWidthFlags)
+					? WIDTH_FLAGS_FORMAT_SWAPPED
+					: WIDTH_FLAGS_FORMAT_NAMED,
 		}
 
 		await setItems(updates)

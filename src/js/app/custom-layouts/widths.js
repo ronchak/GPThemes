@@ -12,6 +12,7 @@ import {
 	SK_WIDTH_IS_SYNC_ENABLED,
 	SK_WIDTH_IS_SYNC_ENABLED_LEGACY,
 	SK_WIDTH_SETTINGS,
+	WIDTH_FLAGS_FORMAT_NAMED,
 	WIDTH_FLAGS_FORMAT_SWAPPED,
 } from '../config/consts-storage.js'
 import { SELECTORS } from '../config/selectors.js'
@@ -47,6 +48,7 @@ let currentState = {
 	syncEnabled: false,
 	fullWidthEnabled: false,
 }
+let legacyFlagsFormat = WIDTH_FLAGS_FORMAT_NAMED
 
 let eventListeners = []
 
@@ -128,13 +130,18 @@ function templateHTML() {
 // =====================================================
 async function saveState(state) {
 	try {
+		const legacyFlagsAreSwapped = legacyFlagsFormat === WIDTH_FLAGS_FORMAT_SWAPPED
 		await setItems({
 			[WIDTH_CONFIG.storageKeys.widthSettings]: state.settings,
 			[WIDTH_CONFIG.storageKeys.syncEnabled]: state.syncEnabled,
 			[WIDTH_CONFIG.storageKeys.fullWidthEnabled]: state.fullWidthEnabled,
-			[SK_WIDTH_IS_FULL_ENABLED_LEGACY]: state.syncEnabled,
-			[SK_WIDTH_IS_SYNC_ENABLED_LEGACY]: state.fullWidthEnabled,
-			[SK_WIDTH_FLAGS_LEGACY_FORMAT]: WIDTH_FLAGS_FORMAT_SWAPPED,
+			[SK_WIDTH_IS_FULL_ENABLED_LEGACY]: legacyFlagsAreSwapped
+				? state.syncEnabled
+				: state.fullWidthEnabled,
+			[SK_WIDTH_IS_SYNC_ENABLED_LEGACY]: legacyFlagsAreSwapped
+				? state.fullWidthEnabled
+				: state.syncEnabled,
+			[SK_WIDTH_FLAGS_LEGACY_FORMAT]: legacyFlagsFormat,
 		})
 		return true
 	} catch (err) {
@@ -346,9 +353,17 @@ async function init() {
 				SK_WIDTH_IS_SYNC_ENABLED_LEGACY,
 			]),
 		])
+		const hasLegacyWidthFlags =
+			typeof result[SK_WIDTH_IS_FULL_ENABLED_LEGACY] === 'boolean' ||
+			typeof result[SK_WIDTH_IS_SYNC_ENABLED_LEGACY] === 'boolean'
 		const legacyFlagsAreSwapped =
 			result[SK_WIDTH_FLAGS_LEGACY_FORMAT] === WIDTH_FLAGS_FORMAT_SWAPPED ||
-			(!result[SK_WIDTH_FLAGS_LEGACY_FORMAT] && result[SK_DB_VERSION] === '1.0')
+			(!result[SK_WIDTH_FLAGS_LEGACY_FORMAT] &&
+				(result[SK_DB_VERSION] === '1.0' ||
+					(!result[SK_DB_VERSION] && hasLegacyWidthFlags)))
+		legacyFlagsFormat = legacyFlagsAreSwapped
+			? WIDTH_FLAGS_FORMAT_SWAPPED
+			: WIDTH_FLAGS_FORMAT_NAMED
 		const legacySyncEnabled =
 			result[
 				legacyFlagsAreSwapped

@@ -42,6 +42,8 @@ async function loadVersionControl(
 		SK_DB_VERSION: '_dbVersion',
 		SK_EXT_VERSION: '_extVersion',
 		SK_WIDTH_FLAGS_LEGACY_FORMAT: '_widthFlagsLegacyFormat',
+		SK_WIDTH_IS_FULL_ENABLED_LEGACY: 'widthIsFullEnabled',
+		SK_WIDTH_IS_SYNC_ENABLED_LEGACY: 'widthIsSyncEnabled',
 		WIDTH_FLAGS_FORMAT_NAMED: 'named',
 		WIDTH_FLAGS_FORMAT_SWAPPED: 'swapped',
 		console: { log() {} },
@@ -148,7 +150,7 @@ test('1.0 schema advances without rewriting legacy width flags and a rerun is a 
 	assert.equal(harness.calls.getItemsStrict.length, 2)
 })
 
-test('missing schema metadata preserves correctly named width flags', async () => {
+test('missing schema metadata classifies tagged-release legacy flags as swapped', async () => {
 	const harness = await loadVersionControl({
 		widthIsFullEnabled: true,
 		widthIsSyncEnabled: false,
@@ -156,15 +158,25 @@ test('missing schema metadata preserves correctly named width flags', async () =
 
 	assert.equal(await harness.module.checkAndCleanStorage(), true)
 	assert.deepEqual(harness.calls.setItems, [
-		{ _dbVersion: '1.1', _widthFlagsLegacyFormat: 'named' },
+		{ _dbVersion: '1.1', _widthFlagsLegacyFormat: 'swapped' },
 	])
 	assert.deepEqual(harness.storage, {
 		_dbVersion: '1.1',
-		_widthFlagsLegacyFormat: 'named',
+		_widthFlagsLegacyFormat: 'swapped',
 		widthIsFullEnabled: true,
 		widthIsSyncEnabled: false,
 	})
 	assert.equal(harness.calls.getItemsStrict.length, 1)
+})
+
+test('a fresh dataset without metadata or legacy flags is classified as named', async () => {
+	const harness = await loadVersionControl({})
+
+	assert.equal(await harness.module.checkAndCleanStorage(), true)
+	assert.deepEqual(harness.storage, {
+		_dbVersion: '1.1',
+		_widthFlagsLegacyFormat: 'named',
+	})
 })
 
 test('unknown older metadata is upgraded without assuming swapped width keys', async () => {
