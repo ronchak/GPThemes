@@ -55,8 +55,10 @@ let tabButtonsContainer = null
 let isSettingsOpen = false
 let settingsListenersAttached = false
 let runtimeInitPromise = null
+let runtimeInitGeneration = -1
 let runtimeGeneration = 0
 let settingsCreationPromise = null
+let settingsCreationGeneration = -1
 
 function templateHTML() {
 	const buttons = TABS_CONFIG.map(
@@ -109,20 +111,32 @@ function reportModuleFailures(results, phase) {
 }
 
 function initializeSettingsRuntime() {
-	if (!runtimeInitPromise) {
-		const generation = runtimeGeneration
-		runtimeInitPromise = Promise.allSettled(TABS_CONFIG.map(({ init }) => init())).then(
-			(results) => {
-				reportModuleFailures(results, 'initialization')
-				if (generation !== runtimeGeneration) {
-					for (const { cleanup } of TABS_CONFIG) cleanup?.()
-				}
-				return results
-			},
-		)
-	}
+	const generation = runtimeGeneration
+	if (runtimeInitPromise && runtimeInitGeneration === generation) return runtimeInitPromise
 
-	return runtimeInitPromise
+	const previousInitialization = runtimeInitPromise
+	const initialization = (async () => {
+		if (previousInitialization) {
+			try {
+				await previousInitialization
+			} catch {
+				// A previous generation already reported its own failure.
+			}
+		}
+
+		if (generation !== runtimeGeneration) return []
+
+		const results = await Promise.allSettled(TABS_CONFIG.map(({ init }) => init()))
+		reportModuleFailures(results, 'initialization')
+		if (generation !== runtimeGeneration) {
+			for (const { cleanup } of TABS_CONFIG) cleanup?.()
+		}
+		return results
+	})()
+
+	runtimeInitPromise = initialization
+	runtimeInitGeneration = generation
+	return initialization
 }
 
 function setElements(root) {
@@ -132,13 +146,23 @@ function setElements(root) {
 	tabPanes = [...settings.querySelectorAll(`.${SELECTORS.SETTINGS.TABS.PANE}`)]
 }
 
-async function mountSettingsModules() {
-	const results = await Promise.allSettled(TABS_CONFIG.map(({ mount }) => mount(settings)))
+async function mountSettingsModules(root) {
+	const results = await Promise.allSettled(TABS_CONFIG.map(({ mount }) => mount(root)))
 	reportModuleFailures(results, 'mount')
 }
 
-async function createSettingsOnce() {
+function clearSettingsReferences(expected = null) {
+	if (expected && settings !== expected) return
+	settings = null
+	tabButtons = []
+	tabPanes = []
+	tabButtonsContainer = null
+	isSettingsOpen = false
+}
+
+async function createSettingsOnce(generation) {
 	await initializeSettingsRuntime()
+	if (generation !== runtimeGeneration) return null
 
 	const existing = document.querySelector(`.${SELECTORS.SETTINGS.ROOT}`)
 	if (existing) {
@@ -156,19 +180,47 @@ async function createSettingsOnce() {
 	document.body.appendChild(element)
 
 	setElements(element)
-	await mountSettingsModules()
+	await mountSettingsModules(element)
+	if (generation !== runtimeGeneration || settings !== element || !element.isConnected) {
+		for (const { cleanup } of TABS_CONFIG) cleanup?.()
+		element.remove()
+		clearSettingsReferences(element)
+		return null
+	}
+
 	addListeners()
 	return element
 }
 
 function createSettings() {
-	if (!settingsCreationPromise) {
-		settingsCreationPromise = createSettingsOnce().finally(() => {
-			settingsCreationPromise = null
-		})
+	const generation = runtimeGeneration
+	if (settingsCreationPromise && settingsCreationGeneration === generation) {
+		return settingsCreationPromise
 	}
 
-	return settingsCreationPromise
+	const previousCreation = settingsCreationPromise
+	const creation = (async () => {
+		if (previousCreation) {
+			try {
+				await previousCreation
+			} catch {
+				// The previous caller receives the original failure.
+			}
+		}
+
+		if (generation !== runtimeGeneration) return null
+		return createSettingsOnce(generation)
+	})()
+
+	settingsCreationPromise = creation
+	settingsCreationGeneration = generation
+	const clearCreation = () => {
+		if (settingsCreationPromise !== creation) return
+		settingsCreationPromise = null
+		settingsCreationGeneration = -1
+	}
+	creation.then(clearCreation, clearCreation)
+	return creation
 }
 
 function addListeners() {
@@ -256,13 +308,7 @@ function destroySettings() {
 	for (const { cleanup } of TABS_CONFIG) cleanup?.()
 
 	settings?.remove()
-	settings = null
-	tabButtons = []
-	tabPanes = []
-	tabButtonsContainer = null
-	isSettingsOpen = false
-	runtimeInitPromise = null
-	settingsCreationPromise = null
+	clearSettingsReferences()
 }
 
 export {
