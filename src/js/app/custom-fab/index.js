@@ -23,13 +23,13 @@ import { onChangeTheme } from '../themeManager.js'
 const STORAGE_KEY = SK_TOGGLE_FAB_HIDDEN
 
 let isDockOpen = false
-let isFABHidden = false
 let isInitialized = false
 let listenersAttached = false
 let removeStorageWatcher = null
 let removeMessagingListener = null
 let settingsActionPromise = null
 let settingsActionGeneration = 0
+let isFABHidden = false
 let initToken = 0
 
 const elements = {
@@ -100,10 +100,7 @@ async function openSettings(token, actionGeneration) {
 	if (!isCurrentSettingsAction(token, actionGeneration)) return
 
 	const settings = await createSettings()
-	if (!settings || !isCurrentSettingsAction(token, actionGeneration)) {
-		onCloseSettings()
-		return
-	}
+	if (!settings || !isCurrentSettingsAction(token, actionGeneration)) return
 
 	onToggleSettings()
 	toggleDock(false)
@@ -114,6 +111,8 @@ function onDockButtonClick(event) {
 	if (!button) return
 
 	if (button.id === SELECTORS.SETTINGS.OPEN_BTN) {
+		if (isFABHidden) return
+
 		if (!settingsActionPromise) {
 			const token = initToken
 			const actionGeneration = settingsActionGeneration
@@ -225,8 +224,8 @@ function cleanup() {
 	elements.dock = null
 	elements.dockButtons = null
 	settingsActionPromise = null
-	isDockOpen = false
 	isFABHidden = false
+	isDockOpen = false
 	isInitialized = false
 }
 
