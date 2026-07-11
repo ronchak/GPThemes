@@ -1,4 +1,4 @@
-const LOCATION_POLL_INTERVAL_MS = 250
+const LOCATION_POLL_INTERVAL_MS = 500
 
 const subscribers = new Set()
 let intervalId = null
@@ -44,7 +44,7 @@ function onVisibilityChange() {
 }
 
 function startLocationMonitor() {
-	if (intervalId) return
+	if (intervalId !== null) return
 
 	lastUrl = location.href
 	window.addEventListener('focus', checkLocation)
@@ -54,13 +54,13 @@ function startLocationMonitor() {
 	document.addEventListener('click', scheduleLocationCheck, true)
 	document.addEventListener('submit', scheduleLocationCheck, true)
 	document.addEventListener('visibilitychange', onVisibilityChange)
-	window.navigation?.addEventListener('navigate', scheduleLocationCheck)
-	window.navigation?.addEventListener('currententrychange', checkLocation)
+	window.navigation?.addEventListener?.('navigate', scheduleLocationCheck)
+	window.navigation?.addEventListener?.('currententrychange', checkLocation)
 	intervalId = window.setInterval(checkLocation, LOCATION_POLL_INTERVAL_MS)
 }
 
 function stopLocationMonitor() {
-	if (!intervalId) return
+	if (intervalId === null) return
 
 	window.clearInterval(intervalId)
 	intervalId = null
@@ -75,8 +75,8 @@ function stopLocationMonitor() {
 	document.removeEventListener('click', scheduleLocationCheck, true)
 	document.removeEventListener('submit', scheduleLocationCheck, true)
 	document.removeEventListener('visibilitychange', onVisibilityChange)
-	window.navigation?.removeEventListener('navigate', scheduleLocationCheck)
-	window.navigation?.removeEventListener('currententrychange', checkLocation)
+	window.navigation?.removeEventListener?.('navigate', scheduleLocationCheck)
+	window.navigation?.removeEventListener?.('currententrychange', checkLocation)
 }
 
 function subscribeLocationChange(subscriber, { emitCurrent = false } = {}) {
@@ -88,7 +88,11 @@ function subscribeLocationChange(subscriber, { emitCurrent = false } = {}) {
 	startLocationMonitor()
 
 	if (emitCurrent) {
-		subscriber({ pathname: location.pathname, previousUrl: null, url: location.href })
+		try {
+			subscriber({ pathname: location.pathname, previousUrl: null, url: location.href })
+		} catch (error) {
+			console.error('[GPThemes] Location subscriber failed.', error)
+		}
 	}
 
 	return () => {
