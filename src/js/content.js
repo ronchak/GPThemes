@@ -1,355 +1,149 @@
-import browser from 'webextension-polyfill'
 import faviconUrl from 'url:../assets/icons/32.png'
-import { init as initFAB } from './app/custom-fab/index'
-import { mount as mountSuggestedPrompts } from './app/custom-layouts/suggestedPrompts'
-import { init as initThemes } from './app/themeManager'
-
-// !! Chat bubbles and chatbox height are mounted from custom-layouts after Settings render !!
-// !! User bubble accent toggle is mounted from Colors module after Settings render !!
-
-const CONFIG = {
-	// TARGET_SELECTOR: '.gpth-settings',
-	TARGET_SELECTOR: '.gpth-fab',
-	RETRY_DELAY: 3000,
-	MAX_RETRIES: 4,
-}
+import { init as initFAB } from './app/custom-fab/index.js'
+import { mount as mountSuggestedPrompts } from './app/custom-layouts/suggestedPrompts.js'
+import { init as initThemes } from './app/themeManager.js'
+import { subscribeDomChanges } from './runtime/domObserver.js'
+import { mountFavicon } from './runtime/favicon.js'
+import { mountLibraryPage } from './runtime/libraryPage.js'
 
 const CLEANUP_KEY = '_gpthCleanup'
+const FAB_SELECTOR = '.gpth-fab'
+const RETRY_DELAYS_MS = [250, 1000, 3000]
 
-const PAGE_ATTRS = {
-	LIBRARY: 'data-gpth-page-library',
-}
-const LIBRARY_HEADER_ATTR = 'data-gpth-library-header-control'
-const LIBRARY_UPLOAD_ATTR = 'data-gpth-library-upload-button'
-const LIBRARY_HEADER_LABEL_PATTERN = /^(Name|Modified|Size)\b/
-const LIBRARY_HEADER_SELECTOR = [
-	'button',
-	'[role="button"]',
-	'[aria-sort]',
-	'[role="columnheader"]',
-	'th',
-	'span',
-	'div',
-	'label',
-	'p',
-].join(',')
+let generation = 0
+let runtimeCleanup = null
+let startPromise = null
+let retryIndex = 0
+let retryTimeout = null
+let removeGuardianListener = null
+let domReadyHandler = null
+let themeCleanup = null
 
-// Track number of attempts
-let retryCount = 0
-let retryTimeout = null // For cleanup
-const runtimeCleanups = []
-let routeObserverStarted = false
-let routeObserver = null
-let routeScanFrame = null
-let lastRoutePath = ''
-
-function addCleanup(cleanup) {
-	if (typeof cleanup === 'function') runtimeCleanups.push(cleanup)
-}
-
-function normalizeLibraryLabel(text) {
-	return text?.trim().replace(/\s+/g, ' ') || ''
-}
-
-function markLibraryHeaderNode(el) {
-	if (!(el instanceof HTMLElement)) return
-
-	const target =
-		el.closest('button, [role="button"], [aria-sort], th, [role="columnheader"]') || el
-
-	target.setAttribute(LIBRARY_HEADER_ATTR, '')
-	el.setAttribute(LIBRARY_HEADER_ATTR, '')
-
-	let current = target
-	for (let depth = 0; depth < 6; depth++) {
-		const parent = current.parentElement
-		if (!parent || parent.matches('main')) break
-
-		const parentText = normalizeLibraryLabel(parent.textContent)
-		if (parentText.length > 90) break
-
-		parent.setAttribute(LIBRARY_HEADER_ATTR, '')
-		current = parent
-	}
-}
-
-function clearLibraryMarkers(main) {
-	main.querySelectorAll(`[${LIBRARY_HEADER_ATTR}], [${LIBRARY_UPLOAD_ATTR}]`).forEach((el) => {
-		el.removeAttribute(LIBRARY_HEADER_ATTR)
-		el.removeAttribute(LIBRARY_UPLOAD_ATTR)
-	})
-}
-
-function markLibraryUploadButton(main) {
-	main.querySelectorAll('button, a, [role="button"]').forEach((el) => {
-		if (normalizeLibraryLabel(el.textContent) !== 'Upload') return
-
-		el.setAttribute(LIBRARY_UPLOAD_ATTR, '')
-	})
-}
-
-function markLibraryHeaderControls(main) {
-	if (!main) return
-
-	clearLibraryMarkers(main)
-
-	main.querySelectorAll(LIBRARY_HEADER_SELECTOR).forEach((el) => {
-		const label = normalizeLibraryLabel(el.textContent)
-		if (!LIBRARY_HEADER_LABEL_PATTERN.test(label)) return
-
-		markLibraryHeaderNode(el)
-	})
-
-	const textWalker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, {
-		acceptNode(node) {
-			return LIBRARY_HEADER_LABEL_PATTERN.test(normalizeLibraryLabel(node.textContent))
-				? NodeFilter.FILTER_ACCEPT
-				: NodeFilter.FILTER_REJECT
-		},
-	})
-
-	let node = textWalker.nextNode()
-	while (node) {
-		markLibraryHeaderNode(node.parentElement)
-		node = textWalker.nextNode()
-	}
-}
-
-function updatePageAttrs() {
-	const path = location.pathname
-	const currentPage = path.split('/').filter(Boolean)[0]
-	const isLibrary = currentPage === 'library'
-
-	if (path !== lastRoutePath) {
-		lastRoutePath = path
-		document.documentElement.toggleAttribute(PAGE_ATTRS.LIBRARY, isLibrary)
-	}
-
-	if (isLibrary) {
-		const main = document.querySelector('main')
-		if (!main) return
-
-		markLibraryHeaderControls(main)
-		markLibraryUploadButton(main)
-	}
-}
-
-function scheduleRouteScan() {
-	if (routeScanFrame) return
-
-	routeScanFrame = window.requestAnimationFrame(() => {
-		routeScanFrame = null
-		updatePageAttrs()
-	})
-}
-
-let faviconObserver = null
-
-function resolveExtensionUrl(assetUrl) {
-	if (typeof assetUrl !== 'string') return null
-	if (/^[a-z][a-z\d+.-]*:/i.test(assetUrl)) return assetUrl
-	return browser.runtime.getURL(assetUrl.replace(/^\//, ''))
-}
-
-function observeFavicon() {
-	if (faviconObserver) return
-
-	const targetNode = document.head
-	if (!targetNode) {
-		if (document.documentElement) {
-			const headObserver = new MutationObserver(() => {
-				if (document.head) {
-					headObserver.disconnect()
-					observeFavicon()
-				}
-			})
-			headObserver.observe(document.documentElement, { childList: true })
-		}
-		return
-	}
-
-	const resolvedUrl = resolveExtensionUrl(faviconUrl)
-	if (!resolvedUrl) {
-		console.warn('[🎨GPThemes]: Could not resolve favicon URL')
-		return
-	}
-
-	const applyFavicon = () => {
-		const links = document.querySelectorAll("link[rel*='icon']")
-		if (links.length === 0) {
-			const link = document.createElement('link')
-			link.rel = 'icon'
-			link.href = resolvedUrl
-			document.head.appendChild(link)
-		} else {
-			links.forEach((link) => {
-				if (link.getAttribute('href') !== resolvedUrl) {
-					link.href = resolvedUrl
-				}
-			})
-		}
-	}
-
-	applyFavicon()
-
-	faviconObserver = new MutationObserver((mutations) => {
-		for (const mutation of mutations) {
-			if (mutation.type === 'childList') {
-				applyFavicon()
-			}
-		}
-	})
-
-	faviconObserver.observe(targetNode, { childList: true, subtree: true })
-	addCleanup(() => {
-		faviconObserver?.disconnect()
-		faviconObserver = null
-	})
-}
-
-function observePageRoute() {
-	if (routeObserverStarted || !document.body) return
-	routeObserverStarted = true
-	updatePageAttrs()
-
-	routeObserver = new MutationObserver(scheduleRouteScan)
-	routeObserver.observe(document.body, { childList: true, subtree: true })
-	window.addEventListener('popstate', updatePageAttrs)
-
-	addCleanup(() => {
-		if (routeScanFrame) {
-			window.cancelAnimationFrame(routeScanFrame)
-			routeScanFrame = null
-		}
-		routeObserver?.disconnect()
-		routeObserver = null
-		routeObserverStarted = false
-		lastRoutePath = ''
-		document.documentElement.removeAttribute(PAGE_ATTRS.LIBRARY)
-		window.removeEventListener('popstate', updatePageAttrs)
-	})
-}
-
-// Main init fn
-async function initExt(themeCleanup = null) {
-	// console.log(`[🎨GPThemes]: Initializing components (attempt ${retryCount + 1}/${CONFIG.MAX_RETRIES})`)
-	if (!document.body) return false
-
-	try {
-		observeFavicon()
-		observePageRoute()
-		addCleanup(mountSuggestedPrompts())
-		addCleanup(themeCleanup || initThemes())
-		addCleanup(await initFAB())
-		// !! Settings modules (colors, fonts, layouts) are initialized inside settingsManager after DOM attach !!
-	} catch (error) {
-		console.error('[🎨GPThemes]: Critical initialization error:', error)
-		disposeRuntimeModules()
-		return false
-	}
-
-	// Verify that the element survived possible React hydration
-	if (!document.querySelector(CONFIG.TARGET_SELECTOR)) {
-		disposeRuntimeModules()
-		return false
-	}
-
-	return true
-}
-
-function disposeRuntimeModules() {
-	while (runtimeCleanups.length) {
-		const cleanup = runtimeCleanups.pop()
+function runCleanups(cleanups) {
+	for (let index = cleanups.length - 1; index >= 0; index--) {
 		try {
-			cleanup()
+			cleanups[index]?.()
 		} catch (error) {
-			console.warn('[🎨GPThemes]: Cleanup failed:', error)
+			console.warn('[GPThemes] Runtime cleanup failed.', error)
 		}
 	}
 }
 
 function clearRetry() {
-	if (retryTimeout) {
-		clearTimeout(retryTimeout)
-		retryTimeout = null
-	}
+	if (!retryTimeout) return
+	window.clearTimeout(retryTimeout)
+	retryTimeout = null
 }
 
-// Schedule retries with exponential backoff
+function stopGuardian() {
+	removeGuardianListener?.()
+	removeGuardianListener = null
+}
+
+function stopRuntime() {
+	generation++
+	stopGuardian()
+	runtimeCleanup?.()
+	runtimeCleanup = null
+}
+
 function scheduleRetry() {
-	clearRetry()
-	retryCount++
-
-	if (retryCount <= CONFIG.MAX_RETRIES) {
-		const delay = CONFIG.RETRY_DELAY * retryCount
-
-		// console.log(`[🎨GPThemes]: Scheduling retry ${retryCount}/${CONFIG.MAX_RETRIES} in ${delay}ms`)
-
-		retryTimeout = setTimeout(async () => {
-			console.info(
-				'[🎨GPThemes]: Re-initializing extension (possible React hydration issue: "Minified React error #XXX;" above?)',
-			)
-
-			if (await initExt()) {
-				// console.log('Injection successful')
-				retryCount = 0
-				clearRetry()
-			} else {
-				scheduleRetry()
-			}
-		}, delay)
-	} else {
-		console.log('[🎨GPThemes]: Maximum retries reached')
-	}
+	if (retryTimeout || runtimeCleanup || retryIndex >= RETRY_DELAYS_MS.length) return
+	const delay = RETRY_DELAYS_MS[retryIndex]
+	retryIndex++
+	retryTimeout = window.setTimeout(() => {
+		retryTimeout = null
+		startRuntime()
+	}, delay)
 }
 
-// Cleanup fn
-function cleanup() {
-	clearRetry()
-	disposeRuntimeModules()
-}
-
-// Emergency cleanup if script re-runs
-if (typeof window[CLEANUP_KEY] === 'function') window[CLEANUP_KEY]()
-window[CLEANUP_KEY] = cleanup
-
-let initialThemeCleanup = initThemes()
-let guardianObserver = null
-
-function startGuardian() {
-	if (guardianObserver || !document.body) return
-	guardianObserver = new MutationObserver(() => {
-		if (retryCount === 0 && !document.querySelector(CONFIG.TARGET_SELECTOR)) {
-			console.info('[🎨GPThemes]: Element missing from body. Re-initializing...')
-			disposeRuntimeModules()
-			start()
-		}
-	})
-	guardianObserver.observe(document.body, { childList: true })
-	addCleanup(() => {
-		guardianObserver?.disconnect()
-		guardianObserver = null
-	})
-}
-
-async function start() {
-	const initialized = await initExt(initialThemeCleanup)
-	initialThemeCleanup = null // prevent reuse
-	if (initialized) {
-		console.log('[🎨GPThemes]: Components initialized')
-		retryCount = 0
-		clearRetry()
-		startGuardian()
-		return
-	}
-
+function scheduleRemount() {
+	if (retryTimeout) return
+	stopRuntime()
+	retryIndex = 0
 	scheduleRetry()
 }
 
-// Initial run
+function startGuardian(fab) {
+	stopGuardian()
+	if (!document.body || !fab) return
+
+	removeGuardianListener = subscribeDomChanges(() => {
+		if (!fab.isConnected) scheduleRemount()
+	})
+}
+
+async function mountRuntime(token) {
+	if (!document.body) return false
+
+	const cleanups = []
+	try {
+		cleanups.push(mountFavicon(faviconUrl))
+		cleanups.push(mountLibraryPage())
+		cleanups.push(mountSuggestedPrompts())
+
+		const cleanupFAB = await initFAB()
+		if (typeof cleanupFAB === 'function') cleanups.push(cleanupFAB)
+		if (token !== generation) {
+			runCleanups(cleanups)
+			return false
+		}
+
+		const fab = document.querySelector(FAB_SELECTOR)
+		if (!fab) throw new Error('The floating theme control did not mount.')
+
+		runtimeCleanup = () => runCleanups(cleanups)
+		startGuardian(fab)
+		return true
+	} catch (error) {
+		runCleanups(cleanups)
+		console.error('[GPThemes] Runtime initialization failed.', error)
+		return false
+	}
+}
+
+function startRuntime() {
+	if (runtimeCleanup) return Promise.resolve(true)
+	if (startPromise) return startPromise
+
+	clearRetry()
+	const token = ++generation
+	startPromise = mountRuntime(token)
+		.then((mounted) => {
+			if (mounted) {
+				retryIndex = 0
+			} else if (token === generation) {
+				scheduleRetry()
+			}
+			return mounted
+		})
+		.finally(() => {
+			startPromise = null
+		})
+	return startPromise
+}
+
+function cleanup() {
+	clearRetry()
+	if (domReadyHandler) {
+		document.removeEventListener('DOMContentLoaded', domReadyHandler)
+		domReadyHandler = null
+	}
+	stopRuntime()
+	themeCleanup?.()
+	themeCleanup = null
+}
+
+if (typeof window[CLEANUP_KEY] === 'function') window[CLEANUP_KEY]()
+window[CLEANUP_KEY] = cleanup
+themeCleanup = initThemes()
+
 if (document.body) {
-	start()
+	startRuntime()
 } else {
-	document.addEventListener('DOMContentLoaded', start, { once: true })
-	addCleanup(() => document.removeEventListener('DOMContentLoaded', start))
+	domReadyHandler = () => {
+		domReadyHandler = null
+		startRuntime()
+	}
+	document.addEventListener('DOMContentLoaded', domReadyHandler, { once: true })
 }
