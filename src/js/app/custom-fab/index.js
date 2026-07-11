@@ -81,9 +81,17 @@ function onFABClick(event) {
 	toggleDock()
 }
 
-async function openSettings() {
+function isCurrentInitialization(token) {
+	return token === initToken && isInitialized && elements.fab?.isConnected
+}
+
+async function openSettings(token) {
 	await initializeSettingsRuntime()
-	await createSettings()
+	if (!isCurrentInitialization(token)) return
+
+	const settings = await createSettings()
+	if (!settings || !isCurrentInitialization(token)) return
+
 	onToggleSettings()
 	toggleDock(false)
 }
@@ -94,13 +102,14 @@ function onDockButtonClick(event) {
 
 	if (button.id === SELECTORS.SETTINGS.OPEN_BTN) {
 		if (!settingsActionPromise) {
-			settingsActionPromise = openSettings()
-				.catch((error) => {
-					console.error('[GPThemes] Failed to open settings:', error)
-				})
-				.finally(() => {
-					settingsActionPromise = null
-				})
+			const token = initToken
+			const action = openSettings(token).catch((error) => {
+				console.error('[GPThemes] Failed to open settings:', error)
+			})
+			settingsActionPromise = action
+			action.then(() => {
+				if (settingsActionPromise === action) settingsActionPromise = null
+			})
 		}
 		return
 	}
