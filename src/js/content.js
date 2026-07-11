@@ -8,6 +8,7 @@ import { init as initThemes } from './app/themeManager.js'
 const CLEANUP_KEY = '_gpthCleanup'
 const runtimeCleanups = []
 let started = false
+let lifecycleGeneration = 0
 
 function resolveExtensionUrl(assetUrl) {
 	if (typeof assetUrl !== 'string') return null
@@ -33,9 +34,28 @@ function addCleanup(cleanup) {
 	if (typeof cleanup === 'function') runtimeCleanups.push(cleanup)
 }
 
-async function mountFeature(name, initializer) {
+function isCurrentLifecycle(generation) {
+	return started && generation === lifecycleGeneration
+}
+
+function disposeFeature(name, cleanup) {
+	if (typeof cleanup !== 'function') return
 	try {
-		addCleanup(await initializer())
+		cleanup()
+	} catch (error) {
+		console.warn(`[GPThemes] ${name} stale initialization cleanup failed:`, error)
+	}
+}
+
+async function mountFeature(name, initializer, generation) {
+	try {
+		const cleanup = await initializer()
+		if (!isCurrentLifecycle(generation)) {
+			disposeFeature(name, cleanup)
+			return false
+		}
+
+		addCleanup(cleanup)
 		return true
 	} catch (error) {
 		console.error(`[GPThemes] ${name} failed to initialize:`, error)
@@ -46,19 +66,25 @@ async function mountFeature(name, initializer) {
 async function start() {
 	if (started || !document.body) return
 	started = true
+	const generation = ++lifecycleGeneration
 
 	await Promise.all([
-		mountFeature('theme manager', initThemes),
-		mountFeature('favicon', installFavicon),
-		mountFeature('library page markers', mountLibraryPageMarkers),
-		mountFeature('suggested prompt markers', mountSuggestedPrompts),
+		mountFeature('theme manager', initThemes, generation),
+		mountFeature('favicon', installFavicon, generation),
+		mountFeature('library page markers', mountLibraryPageMarkers, generation),
+		mountFeature('suggested prompt markers', mountSuggestedPrompts, generation),
 	])
-	await mountFeature('floating theme menu', initFAB)
+	if (!isCurrentLifecycle(generation)) return
+
+	await mountFeature('floating theme menu', initFAB, generation)
+	if (!isCurrentLifecycle(generation)) return
+
 	console.info('[GPThemes] Runtime initialized')
 }
 
 function cleanup() {
 	started = false
+	lifecycleGeneration++
 	while (runtimeCleanups.length) {
 		const dispose = runtimeCleanups.pop()
 		try {
