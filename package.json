@@ -25,12 +25,13 @@
 		"build:all": "pnpm clean:all && pnpm build:chrome && pnpm build:ff && pnpm zip",
 		"lint": "biome lint",
 		"lint:staged": "biome lint --staged",
+		"test": "node --test tests/*.test.js",
 		"format": "biome format --write",
 		"check": "biome check --write",
 		"check:max": "biome check --write --max-diagnostics=6000",
 		"slint": "stylelint \"src/**/*.scss\"",
 		"slint:fix": "stylelint \"src/**/*.scss\" --fix",
-		"validate": "pnpm lint && pnpm slint && pnpm build:all"
+		"validate": "pnpm test && pnpm lint && pnpm slint && pnpm build:all"
 	},
 	"author": "itsmarta",
 	"keywords": [
