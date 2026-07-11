@@ -1,3 +1,4 @@
+import { subscribeDomChanges } from './domObserver.js'
 import { subscribeLocationChange } from './location.js'
 
 const LIBRARY_PAGE_ATTR = 'data-gpth-page-library'
@@ -24,7 +25,7 @@ function normalizeLabel(text) {
 function mountLibraryPage() {
 	const markedElements = new Set()
 	let activeMain = null
-	let observer = null
+	let removeDomListener = null
 	let scanTimeout = null
 
 	function mark(element, attribute) {
@@ -83,48 +84,48 @@ function mountLibraryPage() {
 		scanTimeout = window.setTimeout(scan, SCAN_DELAY_MS)
 	}
 
-	function stopObserver() {
-		observer?.disconnect()
-		observer = null
+	function stopMonitoring() {
+		removeDomListener?.()
+		removeDomListener = null
 		activeMain = null
 		if (scanTimeout) window.clearTimeout(scanTimeout)
 		scanTimeout = null
 	}
 
-	function onMutations(records) {
-		const currentMain = document.querySelector('main')
-		if (currentMain !== activeMain) {
-			activeMain = currentMain
-			scheduleScan()
+	function onDomChanges(records) {
+		if (!activeMain?.isConnected) {
+			const currentMain = document.querySelector('main')
+			if (currentMain !== activeMain) {
+				activeMain = currentMain
+				scheduleScan()
+			}
 			return
 		}
 
-		if (!activeMain) return
 		if (records.some((record) => activeMain.contains(record.target))) scheduleScan()
 	}
 
-	function startObserver() {
-		stopObserver()
+	function startMonitoring() {
+		stopMonitoring()
 		activeMain = document.querySelector('main')
 		scan()
-		observer = new MutationObserver(onMutations)
-		observer.observe(document.body, { childList: true, subtree: true })
+		removeDomListener = subscribeDomChanges(onDomChanges)
 	}
 
 	function onLocationChange({ pathname }) {
-		stopObserver()
+		stopMonitoring()
 		clearMarkers()
 
 		const isLibrary = pathname.split('/').filter(Boolean)[0] === 'library'
 		document.documentElement.toggleAttribute(LIBRARY_PAGE_ATTR, isLibrary)
-		if (isLibrary) startObserver()
+		if (isLibrary) startMonitoring()
 	}
 
-	const unsubscribe = subscribeLocationChange(onLocationChange, { emitCurrent: true })
+	const unsubscribeLocation = subscribeLocationChange(onLocationChange, { emitCurrent: true })
 
 	return () => {
-		unsubscribe()
-		stopObserver()
+		unsubscribeLocation()
+		stopMonitoring()
 		clearMarkers()
 		document.documentElement.removeAttribute(LIBRARY_PAGE_ATTR)
 	}
