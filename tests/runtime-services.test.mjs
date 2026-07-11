@@ -95,3 +95,27 @@ test('shares one document observer and reports SPA route changes', async () => {
 	removeRoute()
 	assert.equal(FakeMutationObserver.instances[1].active, false)
 })
+
+test('skips a subscriber removed earlier in the same mutation dispatch', async () => {
+	FakeMutationObserver.instances = []
+	globalThis.MutationObserver = FakeMutationObserver
+	globalThis.document = { body: { nodeName: 'BODY' } }
+
+	const runtimeRoot = new URL('../src/js/runtime/', import.meta.url)
+	const moduleUrl = new URL(`domMutations.js?dispatch=${Date.now()}`, runtimeRoot)
+	const { subscribeDomMutations } = await import(moduleUrl)
+	const received = []
+	let removeSecond
+
+	const removeFirst = subscribeDomMutations(() => {
+		received.push('first')
+		removeSecond()
+	})
+	removeSecond = subscribeDomMutations(() => received.push('second'))
+
+	FakeMutationObserver.instances[0].trigger()
+	assert.deepEqual(received, ['first'])
+
+	removeFirst()
+	assert.equal(FakeMutationObserver.instances[0].active, false)
+})
