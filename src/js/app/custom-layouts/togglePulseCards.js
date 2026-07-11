@@ -1,3 +1,4 @@
+import { subscribeLocationChange } from '../../runtime/location.js'
 import { ROOT_HTML } from '../../utils/dom.js'
 import { getItem, setItem } from '../../utils/storage.js'
 import { icon_full_width } from '../components/icons.js'
@@ -12,9 +13,7 @@ const DATA_ATTR = ATTR_EXPAND_PULSE_CARDS
 const PAGE_ATTR = 'data-gpth-page-pulse'
 const DEFAULT_STATE = false
 
-let routeObserverStarted = false
-let lastPath = ''
-let routeObserver = null
+let removeLocationListener = null
 let mountedInput = null
 let mountToken = 0
 
@@ -56,10 +55,6 @@ function isPulsePath() {
 }
 
 function updatePulsePageAttr() {
-	const path = location.pathname
-	if (path === lastPath) return
-
-	lastPath = path
 	if (isPulsePath()) {
 		ROOT_HTML.setAttribute(PAGE_ATTR, '')
 	} else {
@@ -68,13 +63,8 @@ function updatePulsePageAttr() {
 }
 
 function observeRouteChanges() {
-	if (routeObserverStarted) return
-	routeObserverStarted = true
-	updatePulsePageAttr()
-
-	routeObserver = new MutationObserver(updatePulsePageAttr)
-	routeObserver.observe(document.body, { childList: true, subtree: true })
-	window.addEventListener('popstate', updatePulsePageAttr)
+	if (removeLocationListener) return
+	removeLocationListener = subscribeLocationChange(updatePulsePageAttr, { emitCurrent: true })
 }
 
 function updateDataAttr(state) {
@@ -120,11 +110,8 @@ async function mount() {
 
 function cleanup() {
 	mountToken++
-	routeObserver?.disconnect()
-	routeObserver = null
-	window.removeEventListener('popstate', updatePulsePageAttr)
-	routeObserverStarted = false
-	lastPath = ''
+	removeLocationListener?.()
+	removeLocationListener = null
 	ROOT_HTML.removeAttribute(PAGE_ATTR)
 
 	mountedInput?.removeEventListener('change', onChange)
