@@ -4,6 +4,7 @@ import { init as initFAB } from './app/custom-fab/index.js'
 import { mount as mountSuggestedPrompts } from './app/custom-layouts/suggestedPrompts.js'
 import { mount as mountLibraryPageMarkers } from './app/pageMarkers/library.js'
 import { init as initThemes } from './app/themeManager.js'
+import { subscribeDomMutations } from './runtime/domMutations.js'
 
 const CLEANUP_KEY = '_gpthCleanup'
 const runtimeCleanups = []
@@ -95,6 +96,48 @@ async function mountFeature(name, initializer, generation) {
 	}
 }
 
+async function mountFloatingThemeMenu() {
+	let disposed = false
+	let fabCleanup = null
+	let remountPromise = null
+
+	async function mountFAB() {
+		const cleanup = await initFAB()
+		if (disposed) {
+			disposeFeature('floating theme menu', cleanup)
+			return
+		}
+		fabCleanup = cleanup
+	}
+
+	function ensureFAB() {
+		if (disposed || document.querySelector('.gpth-fab') || remountPromise) return
+
+		disposeFeature('floating theme menu', fabCleanup)
+		fabCleanup = null
+		remountPromise = mountFAB()
+			.catch((error) => {
+				console.error('[GPThemes] Floating theme menu remount failed:', error)
+			})
+			.finally(() => {
+				remountPromise = null
+			})
+	}
+
+	await mountFAB()
+	if (disposed) return
+
+	const removeGuard = subscribeDomMutations(ensureFAB)
+	ensureFAB()
+
+	return () => {
+		disposed = true
+		removeGuard()
+		disposeFeature('floating theme menu', fabCleanup)
+		fabCleanup = null
+	}
+}
+
 async function start() {
 	if (started || !document.body) return
 	started = true
@@ -108,7 +151,7 @@ async function start() {
 	])
 	if (!isCurrentLifecycle(generation)) return
 
-	await mountFeature('floating theme menu', initFAB, generation)
+	await mountFeature('floating theme menu', mountFloatingThemeMenu, generation)
 	if (!isCurrentLifecycle(generation)) return
 
 	console.info('[GPThemes] Runtime initialized')
