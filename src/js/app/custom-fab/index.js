@@ -28,6 +28,8 @@ let listenersAttached = false
 let removeStorageWatcher = null
 let removeMessagingListener = null
 let settingsActionPromise = null
+let settingsActionGeneration = 0
+let isFABHidden = false
 let initToken = 0
 
 const elements = {
@@ -85,12 +87,20 @@ function isCurrentInitialization(token) {
 	return token === initToken && isInitialized && elements.fab?.isConnected
 }
 
-async function openSettings(token) {
+function isCurrentSettingsAction(token, actionGeneration) {
+	return (
+		isCurrentInitialization(token) &&
+		!isFABHidden &&
+		actionGeneration === settingsActionGeneration
+	)
+}
+
+async function openSettings(token, actionGeneration) {
 	await initializeSettingsRuntime()
-	if (!isCurrentInitialization(token)) return
+	if (!isCurrentSettingsAction(token, actionGeneration)) return
 
 	const settings = await createSettings()
-	if (!settings || !isCurrentInitialization(token)) return
+	if (!settings || !isCurrentSettingsAction(token, actionGeneration)) return
 
 	onToggleSettings()
 	toggleDock(false)
@@ -101,9 +111,12 @@ function onDockButtonClick(event) {
 	if (!button) return
 
 	if (button.id === SELECTORS.SETTINGS.OPEN_BTN) {
+		if (isFABHidden) return
+
 		if (!settingsActionPromise) {
 			const token = initToken
-			const action = openSettings(token).catch((error) => {
+			const actionGeneration = settingsActionGeneration
+			const action = openSettings(token, actionGeneration).catch((error) => {
 				console.error('[GPThemes] Failed to open settings:', error)
 			})
 			settingsActionPromise = action
@@ -135,10 +148,14 @@ function removeListeners() {
 }
 
 function setFABVisibility(isHidden = false) {
+	const nextHidden = isHidden === true
+	if (nextHidden && !isFABHidden) settingsActionGeneration++
+	isFABHidden = nextHidden
+
 	if (!elements.fab) return
 
-	elements.fab.classList.toggle(`${SELECTORS.FAB.ROOT}--hidden`, isHidden)
-	if (isHidden) {
+	elements.fab.classList.toggle(`${SELECTORS.FAB.ROOT}--hidden`, nextHidden)
+	if (nextHidden) {
 		toggleDock(false)
 		onCloseSettings()
 	}
@@ -194,6 +211,7 @@ async function init() {
 
 function cleanup() {
 	initToken++
+	settingsActionGeneration++
 	toggleDock(false)
 	removeListeners()
 	removeStorageWatcher?.()
@@ -206,6 +224,7 @@ function cleanup() {
 	elements.dock = null
 	elements.dockButtons = null
 	settingsActionPromise = null
+	isFABHidden = false
 	isDockOpen = false
 	isInitialized = false
 }
