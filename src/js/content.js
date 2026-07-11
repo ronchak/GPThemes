@@ -18,16 +18,48 @@ function resolveExtensionUrl(assetUrl) {
 
 function installFavicon() {
 	const resolvedUrl = resolveExtensionUrl(faviconUrl)
-	if (!resolvedUrl || !document.head) return
+	const head = document.head
+	if (!resolvedUrl || !head) return
 
-	const existing = document.head.querySelector('link[data-gpth-favicon]')
-	const link = existing || document.createElement('link')
-	link.rel = 'icon'
-	link.href = resolvedUrl
-	link.setAttribute('data-gpth-favicon', '')
-	if (!existing) document.head.appendChild(link)
+	const originalHrefs = new Map()
+	const existingManagedLink = head.querySelector('link[data-gpth-favicon]')
+	const managedLink = existingManagedLink || document.createElement('link')
+	const createdManagedLink = !existingManagedLink
 
-	return () => link.remove()
+	if (createdManagedLink) {
+		managedLink.rel = 'icon'
+		managedLink.setAttribute('data-gpth-favicon', '')
+		head.appendChild(managedLink)
+	}
+
+	const applyFavicon = () => {
+		if (!managedLink.isConnected) head.appendChild(managedLink)
+
+		const links = head.querySelectorAll("link[rel*='icon']")
+		for (const link of links) {
+			if (!originalHrefs.has(link)) originalHrefs.set(link, link.getAttribute('href'))
+			if (link.getAttribute('href') !== resolvedUrl) link.setAttribute('href', resolvedUrl)
+		}
+	}
+
+	applyFavicon()
+	const observer = new MutationObserver(applyFavicon)
+	observer.observe(head, {
+		attributeFilter: ['href', 'rel'],
+		attributes: true,
+		childList: true,
+		subtree: true,
+	})
+
+	return () => {
+		observer.disconnect()
+		for (const [link, originalHref] of originalHrefs) {
+			if (!link.isConnected || link === managedLink) continue
+			if (originalHref == null) link.removeAttribute('href')
+			else link.setAttribute('href', originalHref)
+		}
+		if (createdManagedLink) managedLink.remove()
+	}
 }
 
 function addCleanup(cleanup) {
