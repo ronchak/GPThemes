@@ -30,7 +30,8 @@
 		"check:max": "biome check --write --max-diagnostics=6000",
 		"slint": "stylelint \"src/**/*.scss\"",
 		"slint:fix": "stylelint \"src/**/*.scss\" --fix",
-		"validate": "pnpm lint && pnpm slint && pnpm build:all"
+		"check:cycles": "node scripts/check-import-cycles.js",
+		"validate": "pnpm lint && pnpm check:cycles && pnpm slint && pnpm build:all"
 	},
 	"author": "itsmarta",
 	"keywords": [

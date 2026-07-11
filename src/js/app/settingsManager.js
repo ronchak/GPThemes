@@ -14,25 +14,13 @@ import {
 } from './custom-fonts/index.js'
 import {
 	cleanup as cleanupLayouts,
-	init as initWidths,
-	mount as mountWidths,
+	init as initLayouts,
+	mount as mountLayouts,
 	renderLayoutsTab,
 } from './custom-layouts/index.js'
 
-// =====================================================
-// STATE - global state (cached refs, constants)
-// =====================================================
-let $settings = null
-let $tabButtons = []
-let $tabPanes = []
-let isSettingsOpen = false
-let tabButtonsContainer = null
-let settingsListenersAttached = false
-let settingsMountFrame = null
-
 const ACTIVE_CLASS = 'active'
 const HIDDEN_CLASS = 'hidden'
-
 const TABS_CONFIG = [
 	{
 		id: 'colors',
@@ -54,29 +42,38 @@ const TABS_CONFIG = [
 		id: 'layout',
 		label: 'Layout',
 		render: renderLayoutsTab,
-		init: initWidths,
-		mount: mountWidths,
+		init: initLayouts,
+		mount: mountLayouts,
 		cleanup: cleanupLayouts,
 	},
 ]
 
-// =====================================================
-// TEMPLATE - UI rendergn
-// =====================================================
+let settings = null
+let tabButtons = []
+let tabPanes = []
+let tabButtonsContainer = null
+let isSettingsOpen = false
+let settingsListenersAttached = false
+let runtimeInitPromise = null
+let runtimeGeneration = 0
+let settingsCreationPromise = null
+
 function templateHTML() {
 	const buttons = TABS_CONFIG.map(
-		({ label }, i) => `
+		({ label }, index) => `
 			<button class="${SELECTORS.SETTINGS.TABS.BUTTON} py-2 px-4 focus:outline-none text-center ${
-				i === 0 ? ACTIVE_CLASS : ''
-			}" data-tab="${i}">
+				index === 0 ? ACTIVE_CLASS : ''
+			}" data-tab="${index}">
 				${label}
 			</button>`,
 	).join('')
 
 	const panes = TABS_CONFIG.map(
-		({ id, render }, i) => `
+		({ id, render }, index) => `
 			<div id="${PFX}-tab-${id}"
-				class="${SELECTORS.SETTINGS.TABS.PANE} ${i === 0 ? ACTIVE_CLASS : HIDDEN_CLASS}">
+				class="${SELECTORS.SETTINGS.TABS.PANE} ${
+					index === 0 ? ACTIVE_CLASS : HIDDEN_CLASS
+				}">
 				${render()}
 			</div>`,
 	).join('')
@@ -96,14 +93,53 @@ function templateHTML() {
 					${panes}
 				</div>
 			</div>
-		</main>`
+		</main>
+	`
 }
 
-// =====================================================
-// Lifecycle: CREATE (build DOM, init modules, mount)
-// =====================================================
-async function createSettings() {
-	// console.log('[CREATE SETTINGS]')
+function reportModuleFailures(results, phase) {
+	results.forEach((result, index) => {
+		if (result.status === 'rejected') {
+			console.error(
+				`[GPThemes settings] ${TABS_CONFIG[index].id} ${phase} failed:`,
+				result.reason,
+			)
+		}
+	})
+}
+
+function initializeSettingsRuntime() {
+	if (!runtimeInitPromise) {
+		const generation = runtimeGeneration
+		runtimeInitPromise = Promise.allSettled(TABS_CONFIG.map(({ init }) => init())).then(
+			(results) => {
+				reportModuleFailures(results, 'initialization')
+				if (generation !== runtimeGeneration) {
+					for (const { cleanup } of TABS_CONFIG) cleanup?.()
+				}
+				return results
+			},
+		)
+	}
+
+	return runtimeInitPromise
+}
+
+function setElements(root) {
+	settings = root
+	tabButtonsContainer = settings.querySelector(`.${SELECTORS.SETTINGS.TABS.BUTTONS}`)
+	tabButtons = [...settings.querySelectorAll(`.${SELECTORS.SETTINGS.TABS.BUTTON}`)]
+	tabPanes = [...settings.querySelectorAll(`.${SELECTORS.SETTINGS.TABS.PANE}`)]
+}
+
+async function mountSettingsModules() {
+	const results = await Promise.allSettled(TABS_CONFIG.map(({ mount }) => mount(settings)))
+	reportModuleFailures(results, 'mount')
+}
+
+async function createSettingsOnce() {
+	await initializeSettingsRuntime()
+
 	const existing = document.querySelector(`.${SELECTORS.SETTINGS.ROOT}`)
 	if (existing) {
 		setElements(existing)
@@ -111,82 +147,50 @@ async function createSettings() {
 		return existing
 	}
 
-	// 1. Create root container
-	const el = document.createElement('div')
-	el.className = `${SELECTORS.SETTINGS.ROOT} fixed flex flex-col`
-	el.setAttribute('role', 'dialog')
-	el.setAttribute('aria-label', 'GPThemes customization')
-	el.setAttribute('aria-hidden', 'true')
-	el.innerHTML = templateHTML()
+	const element = document.createElement('div')
+	element.className = `${SELECTORS.SETTINGS.ROOT} fixed flex flex-col`
+	element.setAttribute('role', 'dialog')
+	element.setAttribute('aria-label', 'GPThemes customization')
+	element.setAttribute('aria-hidden', 'true')
+	element.innerHTML = templateHTML()
+	document.body.appendChild(element)
 
-	// 2. Append to DOM FIRST
-	document.body.appendChild(el)
+	setElements(element)
+	await mountSettingsModules()
+	addListeners()
+	return element
+}
 
-	// 3. Cache elements AFTER they're in DOM
-	setElements(el)
-
-	// 4. Init modules in parallel, then mount sequentially after DOM ready
-	const results = await Promise.allSettled(TABS_CONFIG.map(({ init }) => init()))
-
-	results.forEach((result, index) => {
-		if (result.status === 'rejected') {
-			console.error(`[Settings] ${TABS_CONFIG[index].id} init failed:`, result.reason)
-		}
-	})
-
-	//  Wait for next tick to ensure DOM is fully ready
-	settingsMountFrame = requestAnimationFrame(() => {
-		settingsMountFrame = null
-		if ($settings !== el || !el.isConnected) return
-
-		// 5. Mount modules
-		TABS_CONFIG.forEach(({ mount }) => {
-			mount(el)
+function createSettings() {
+	if (!settingsCreationPromise) {
+		settingsCreationPromise = createSettingsOnce().finally(() => {
+			settingsCreationPromise = null
 		})
-		// 6. Attach global listeners
-		addListeners()
-	})
+	}
 
-	return el
+	return settingsCreationPromise
 }
 
-// =====================================================
-// ELEMENTS - cache DOM elemnt references
-// =====================================================
-function setElements(root) {
-	$settings = root
-	tabButtonsContainer = $settings.querySelector(`.${SELECTORS.SETTINGS.TABS.BUTTONS}`)
-	$tabButtons = [...$settings.querySelectorAll(`.${SELECTORS.SETTINGS.TABS.BUTTON}`)]
-	$tabPanes = [...$settings.querySelectorAll(`.${SELECTORS.SETTINGS.TABS.PANE}`)]
-}
-
-// =====================================================
-// LISTENERS
-// =====================================================
 function addListeners() {
 	if (settingsListenersAttached || !tabButtonsContainer) return
-
 	tabButtonsContainer.addEventListener('click', onTabsSwitching)
 	settingsListenersAttached = true
-	// handleTabsSwitching()
 }
 
 function removeListeners() {
-	if (!settingsListenersAttached || !tabButtonsContainer) return
-
-	tabButtonsContainer.removeEventListener('click', onTabsSwitching)
+	if (!settingsListenersAttached) return
+	tabButtonsContainer?.removeEventListener('click', onTabsSwitching)
 	settingsListenersAttached = false
 }
 
-function onClickOutside(e) {
-	const isClickInside = $settings.contains(e.target)
-	const isToggleBtn = e.target.closest?.(`#${SELECTORS.SETTINGS.OPEN_BTN}`)
-
-	if (!isClickInside && !isToggleBtn) onCloseSettings()
+function onClickOutside(event) {
+	const isClickInside = settings?.contains(event.target)
+	const isToggleButton = event.target.closest?.(`#${SELECTORS.SETTINGS.OPEN_BTN}`)
+	if (!isClickInside && !isToggleButton) onCloseSettings()
 }
 
-function onKeydown(e) {
-	if (e.key === 'Escape') onCloseSettings()
+function onKeydown(event) {
+	if (event.key === 'Escape') onCloseSettings()
 }
 
 function addGlobalCloseListeners() {
@@ -199,84 +203,73 @@ function removeGlobalCloseListeners() {
 	document.removeEventListener('keydown', onKeydown, true)
 }
 
-function onTabsSwitching(e) {
-	// Event delegation for tabs - single listener instead of N
-	const btn = e.target.closest(`.${SELECTORS.SETTINGS.TABS.BUTTON}`)
-	if (!btn) return
+function onTabsSwitching(event) {
+	const button = event.target.closest(`.${SELECTORS.SETTINGS.TABS.BUTTON}`)
+	if (!button) return
 
-	const newIndex = +btn.dataset.tab
-	const activeIndex = $tabButtons.findIndex((t) => t.classList.contains(ACTIVE_CLASS))
-
-	// console.log(activeIndex, newIndex)
-
+	const newIndex = Number(button.dataset.tab)
+	const activeIndex = tabButtons.findIndex((tab) => tab.classList.contains(ACTIVE_CLASS))
 	if (
 		activeIndex === newIndex ||
 		activeIndex < 0 ||
-		!$tabButtons[newIndex] ||
-		!$tabPanes[newIndex]
+		!tabButtons[newIndex] ||
+		!tabPanes[newIndex]
 	) {
 		return
 	}
 
-	// Swap states
-	$tabButtons[activeIndex].classList.remove(ACTIVE_CLASS)
-	$tabButtons[newIndex].classList.add(ACTIVE_CLASS)
-	$tabPanes[activeIndex].classList.add(HIDDEN_CLASS)
-	$tabPanes[newIndex].classList.remove(HIDDEN_CLASS)
+	tabButtons[activeIndex].classList.remove(ACTIVE_CLASS)
+	tabButtons[newIndex].classList.add(ACTIVE_CLASS)
+	tabPanes[activeIndex].classList.add(HIDDEN_CLASS)
+	tabPanes[newIndex].classList.remove(HIDDEN_CLASS)
 }
 
 function onOpenSettings() {
-	if (!$settings || isSettingsOpen) return
+	if (!settings || isSettingsOpen) return
 
 	isSettingsOpen = true
-	$settings.classList.add(SELECTORS.SETTINGS.OPEN_STATE)
-	$settings.setAttribute('aria-hidden', 'false')
-
-	// Small delay to allow reflow before attaching listener
-	requestAnimationFrame(() => {
+	settings.classList.add(SELECTORS.SETTINGS.OPEN_STATE)
+	settings.setAttribute('aria-hidden', 'false')
+	window.requestAnimationFrame(() => {
 		if (isSettingsOpen) addGlobalCloseListeners()
 	})
 }
 
 function onCloseSettings() {
-	if (!$settings) return
+	if (!settings) return
 
 	isSettingsOpen = false
-	$settings.classList.remove(SELECTORS.SETTINGS.OPEN_STATE)
-	$settings.setAttribute('aria-hidden', 'true')
+	settings.classList.remove(SELECTORS.SETTINGS.OPEN_STATE)
+	settings.setAttribute('aria-hidden', 'true')
 	removeGlobalCloseListeners()
 }
 
 function onToggleSettings() {
-	if (isSettingsOpen) {
-		onCloseSettings()
-		return
-	}
-
-	onOpenSettings()
+	isSettingsOpen ? onCloseSettings() : onOpenSettings()
 }
 
 function destroySettings() {
+	runtimeGeneration++
 	onCloseSettings()
-	if (settingsMountFrame) {
-		cancelAnimationFrame(settingsMountFrame)
-		settingsMountFrame = null
-	}
 	removeListeners()
 
-	for (const { cleanup } of TABS_CONFIG) {
-		cleanup?.()
-	}
+	for (const { cleanup } of TABS_CONFIG) cleanup?.()
 
-	$settings?.remove()
-	$settings = null
-	$tabButtons = []
-	$tabPanes = []
+	settings?.remove()
+	settings = null
+	tabButtons = []
+	tabPanes = []
 	tabButtonsContainer = null
 	isSettingsOpen = false
+	runtimeInitPromise = null
+	settingsCreationPromise = null
 }
 
-// =====================================================
-// Exports
-// =====================================================
-export { createSettings, destroySettings, onOpenSettings, onCloseSettings, onToggleSettings }
+export {
+	createSettings,
+	destroySettings,
+	initializeSettingsRuntime,
+	onCloseSettings,
+	onOpenSettings,
+	onToggleSettings,
+}
