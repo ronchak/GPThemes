@@ -31,7 +31,8 @@
 		"slint": "stylelint \"src/**/*.scss\"",
 		"slint:fix": "stylelint \"src/**/*.scss\" --fix",
 		"check:cycles": "node scripts/check-import-cycles.js",
-		"validate": "pnpm lint && pnpm check:cycles && pnpm slint && pnpm build:all"
+		"test:runtime": "node --test tests/*.test.mjs",
+		"validate": "pnpm lint && pnpm check:cycles && pnpm test:runtime && pnpm slint && pnpm build:all"
 	},
 	"author": "itsmarta",
 	"keywords": [
