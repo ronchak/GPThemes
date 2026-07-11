@@ -112,7 +112,7 @@ export const SELECTORS = {
 		},
 		FOOTER: {
 			TOGGLE_ID: `${PFX}-hide-footer`,
-			SELECTOR: `#main #thread-bottom-container > .mt-auto,#main div#thread-bottom-container>div:last-of-type:is(.-mt-4),#main div.sticky.bottom-0 .min-h-8.w-full.text-xs.text-pretty`,
+			SELECTOR: `#main #thread-bottom-container > [data-testid="thread-disclaimer"],#main div#thread-bottom-container>div:last-of-type:is(.-mt-4),#main div.sticky.bottom-0 .min-h-8.w-full.text-xs.text-pretty`,
 		},
 		RECENTS_PILL: {
 			TOGGLE_ID: `${PFX}-hide-recents-pill`,

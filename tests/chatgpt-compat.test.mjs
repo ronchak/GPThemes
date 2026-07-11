@@ -51,11 +51,14 @@ test('current writing and collapsible-message controls inherit themed surfaces',
 	)
 })
 
-test('Hide Footer includes the current direct footer contract in JS and CSS', async () => {
+test('Hide Footer targets the current disclaimer without relying on a generic utility', async () => {
 	const selectors = await source('src/js/app/config/selectors.js')
 	const hides = await source('src/sass/customs/_custom--hides.scss')
-	const currentFooter = /#main #thread-bottom-container > \.mt-auto/
+	const currentFooter = /#main #thread-bottom-container > \[data-testid=["']thread-disclaimer["']\]/
+	const broadFooter = /#main #thread-bottom-container > \.mt-auto/
 
-	assert.match(selectors, currentFooter)
-	assert.match(hides, currentFooter)
+	for (const value of [selectors, hides]) {
+		assert.match(value, currentFooter)
+		assert.doesNotMatch(value, broadFooter)
+	}
 })
