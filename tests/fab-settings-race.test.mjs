@@ -20,7 +20,7 @@ async function flushMicrotasks(limit = 12) {
 	for (let index = 0; index < limit; index++) await Promise.resolve()
 }
 
-function createRuntime() {
+function createRuntime({ settingsPromise = null } = {}) {
 	const hydration = createDeferred()
 	const state = {
 		closeCalls: 0,
@@ -80,7 +80,7 @@ function createRuntime() {
 		console,
 		createSettings: async () => {
 			state.createCalls++
-			return {}
+			return settingsPromise ? settingsPromise : {}
 		},
 		destroySettings() {},
 		document: {
@@ -122,18 +122,21 @@ function createRuntime() {
 	return { context, hydration, state }
 }
 
-test('hiding the FAB cancels an in-flight settings open even after it is shown again', async () => {
-	const runtime = createRuntime()
-	await runtime.context.__fabTest.init()
-
+function settingsClickEvent() {
 	const settingsButton = { id: 'gpth-open-settings' }
-	const event = {
+	return {
 		target: {
 			closest() {
 				return settingsButton
 			},
 		},
 	}
+}
+
+test('hiding the FAB cancels an in-flight settings open even after it is shown again', async () => {
+	const runtime = createRuntime()
+	await runtime.context.__fabTest.init()
+	const event = settingsClickEvent()
 
 	runtime.context.__fabTest.onDockButtonClick(event)
 	runtime.context.__fabTest.toggleFABVisibility(true)
@@ -149,4 +152,23 @@ test('hiding the FAB cancels an in-flight settings open even after it is shown a
 
 	assert.equal(runtime.state.createCalls, 1)
 	assert.equal(runtime.state.toggleCalls, 1)
+})
+
+test('hiding the FAB while settings DOM creation is pending leaves the panel closed', async () => {
+	const settings = createDeferred()
+	const runtime = createRuntime({ settingsPromise: settings.promise })
+	await runtime.context.__fabTest.init()
+	runtime.hydration.resolve()
+	await flushMicrotasks()
+
+	runtime.context.__fabTest.onDockButtonClick(settingsClickEvent())
+	await flushMicrotasks()
+	assert.equal(runtime.state.createCalls, 1)
+
+	runtime.context.__fabTest.toggleFABVisibility(true)
+	settings.resolve({})
+	await flushMicrotasks()
+
+	assert.equal(runtime.state.toggleCalls, 0)
+	assert.equal(runtime.state.closeCalls, 1)
 })
