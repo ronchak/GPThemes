@@ -16,6 +16,8 @@ Async startup is generation guarded. Runtime cleanup invalidates work still in f
 
 The settings runtime and the settings interface are separate phases. `initializeSettingsRuntime()` applies stored colors, fonts, widths, visibility preferences, and page markers without creating settings DOM. `createSettings()` renders and mounts controls only after the user opens the panel.
 
+Settings-open actions are also generation guarded. Hiding or destroying the floating menu invalidates pending work before it can create or reveal the settings panel, even if the menu becomes visible again before the asynchronous operation resolves.
+
 The floating menu owns settings interaction. The theme manager only applies themes. Messaging receives a visibility callback instead of importing the floating menu. These boundaries keep the import graph acyclic.
 
 ## Adding a feature
