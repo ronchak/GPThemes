@@ -7,6 +7,8 @@ function reportSubscriberError(error) {
 
 function notifySubscribers(mutations) {
 	for (const subscriber of [...subscribers]) {
+		if (!subscribers.has(subscriber)) continue
+
 		try {
 			subscriber(mutations)
 		} catch (error) {
