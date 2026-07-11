@@ -1,7 +1,6 @@
 /**
- * Tagger for the Activity sidebar (Memory, Web, etc.)
- * Stamps data-gpth-activity-panel on the right sidebar container
- * so CSS can reliably target it regardless of ChatGPT's class names.
+ * Tags the Activity sidebar and its light child surfaces so CSS can target them
+ * without depending on ChatGPT's generated class names.
  */
 
 const PANEL_ATTR = 'data-gpth-activity-panel'
@@ -23,95 +22,108 @@ const SURFACE_SELECTOR = [
 
 let active = false
 let observer = null
-let scanTimeout = null
+const markedPanels = new Set()
+const markedSurfaces = new Set()
 
-/** Check if an element looks like the activity/thread flyout sidebar */
-function isActivityPanel(el) {
-	// Check for common right-sidebar indicators
-	if (el.matches('aside, [role="complementary"]')) return true
-	if (el.getAttribute('data-testid')?.match(/flyout|activity/i)) return true
-	if (
-		el.className?.match?.(/flyout|activity|sidebar/i) &&
-		!el.matches('#stage-slideover-sidebar, #stage-popover-sidebar, nav')
+function isActivityPanel(element) {
+	if (element.matches('aside, [role="complementary"]')) return true
+	if (element.getAttribute('data-testid')?.match(/flyout|activity/i)) return true
+	return Boolean(
+		element.className?.match?.(/flyout|activity|sidebar/i) &&
+			!element.matches('#stage-slideover-sidebar, #stage-popover-sidebar, nav'),
 	)
-		return true
-	return false
 }
 
-/** Mark light backgrounds so CSS can theme them without repeated inline writes. */
-function markChildSurfaces(panel) {
-	const children = panel.querySelectorAll(SURFACE_SELECTOR)
-	for (const child of children) {
-		if (!(child instanceof HTMLElement)) continue
+function markSurface(element) {
+	if (!(element instanceof HTMLElement)) return
 
-		const style = window.getComputedStyle(child)
-		const bg = style.backgroundColor
-		if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
+	const background = window.getComputedStyle(element).backgroundColor
+	if (!background || background === 'transparent' || background === 'rgba(0, 0, 0, 0)') {
+		return
+	}
 
-		// Parse rgb values
-		const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-		if (!match) continue
+	const match = background.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+	if (!match) return
+	const [, red, green, blue] = match.map(Number)
+	const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
+	if (luminance > 0.7) {
+		element.setAttribute(SURFACE_ATTR, '')
+		markedSurfaces.add(element)
+	}
+}
 
-		const [, r, g, b] = match.map(Number)
-		// If the background is light (high luminance), it needs to be overridden
-		const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-		if (luminance > 0.7) {
-			child.setAttribute(SURFACE_ATTR, '')
-		}
+function markSurfacesWithin(root) {
+	if (!(root instanceof Element)) return
+	if (root.matches(SURFACE_SELECTOR)) markSurface(root)
+	for (const surface of root.querySelectorAll(SURFACE_SELECTOR)) markSurface(surface)
+}
+
+function markPanel(element) {
+	if (!(element instanceof HTMLElement) || !isActivityPanel(element)) return
+	element.setAttribute(PANEL_ATTR, '')
+	markedPanels.add(element)
+	markSurfacesWithin(element)
+}
+
+function processElement(element) {
+	if (!(element instanceof Element)) return
+
+	const existingPanel = element.closest(`[${PANEL_ATTR}]`)
+	if (existingPanel) markSurfacesWithin(element)
+	if (element.matches(CANDIDATE_SELECTOR)) markPanel(element)
+	for (const candidate of element.querySelectorAll(CANDIDATE_SELECTOR)) markPanel(candidate)
+}
+
+function releaseElement(element) {
+	if (!(element instanceof Element)) return
+
+	const panels = []
+	if (element.hasAttribute(PANEL_ATTR)) panels.push(element)
+	panels.push(...element.querySelectorAll(`[${PANEL_ATTR}]`))
+	for (const panel of panels) {
+		panel.removeAttribute(PANEL_ATTR)
+		markedPanels.delete(panel)
+	}
+
+	const surfaces = []
+	if (element.hasAttribute(SURFACE_ATTR)) surfaces.push(element)
+	surfaces.push(...element.querySelectorAll(`[${SURFACE_ATTR}]`))
+	for (const surface of surfaces) {
+		surface.removeAttribute(SURFACE_ATTR)
+		markedSurfaces.delete(surface)
 	}
 }
 
 function scan() {
 	const root = document.querySelector('main') || document.body
 	if (!root) return
+	processElement(root)
+}
 
-	// Tag any activity panel elements
-	const candidates = [
-		...(root.matches(CANDIDATE_SELECTOR) ? [root] : []),
-		...root.querySelectorAll(CANDIDATE_SELECTOR),
-	]
-
-	for (const el of candidates) {
-		if (!el.hasAttribute(PANEL_ATTR) && isActivityPanel(el)) {
-			el.setAttribute(PANEL_ATTR, '')
-			markChildSurfaces(el)
-		}
-	}
-
-	// Also force backgrounds on already-tagged panels when DOM changes
-	for (const panel of root.querySelectorAll(`[${PANEL_ATTR}]`)) {
-		markChildSurfaces(panel)
+function onMutations(records) {
+	for (const record of records) {
+		for (const node of record.removedNodes) releaseElement(node)
+		for (const node of record.addedNodes) processElement(node)
 	}
 }
 
 function mount() {
-	if (active) return
+	if (active) return cleanup
 	active = true
-
-	// Initial scan
 	scan()
-
-	observer = new MutationObserver(() => {
-		if (scanTimeout) clearTimeout(scanTimeout)
-		scanTimeout = setTimeout(scan, 150)
-	})
-
+	observer = new MutationObserver(onMutations)
 	observer.observe(document.body, { childList: true, subtree: true })
 	return cleanup
 }
 
 function cleanup() {
-	if (scanTimeout) {
-		clearTimeout(scanTimeout)
-		scanTimeout = null
-	}
 	observer?.disconnect()
 	observer = null
 	active = false
-	document.querySelectorAll(`[${PANEL_ATTR}], [${SURFACE_ATTR}]`).forEach((el) => {
-		el.removeAttribute(PANEL_ATTR)
-		el.removeAttribute(SURFACE_ATTR)
-	})
+	for (const panel of markedPanels) panel.removeAttribute(PANEL_ATTR)
+	for (const surface of markedSurfaces) surface.removeAttribute(SURFACE_ATTR)
+	markedPanels.clear()
+	markedSurfaces.clear()
 }
 
 export { cleanup, mount }
