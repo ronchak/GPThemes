@@ -11,7 +11,12 @@ import {
 import { SK_TOGGLE_FAB_HIDDEN } from '../config/consts-storage.js'
 import { SELECTORS } from '../config/selectors.js'
 import { setupExtensionMessaging } from '../messaging/index.js'
-import { createSettings, destroySettings, onCloseSettings } from '../settingsManager.js'
+import {
+	createSettings,
+	destroySettings,
+	onCloseSettings,
+	onToggleSettings,
+} from '../settingsManager.js'
 import { onChangeTheme } from '../themeManager.js'
 
 // =====================================================
@@ -69,9 +74,7 @@ async function createFAB() {
 	if (existing) {
 		setElements(existing)
 		await setInitialFABVisibility()
-		requestAnimationFrame(() => {
-			addListeners()
-		})
+		addListeners()
 		return existing
 	}
 
@@ -87,10 +90,8 @@ async function createFAB() {
 	// 3. Load initial state
 	await setInitialFABVisibility()
 
-	// 4. Wire up listeners (after DOM ready)
-	requestAnimationFrame(() => {
-		addListeners()
-	})
+	// 4. Wire up listeners
+	addListeners()
 
 	return $FAB
 }
@@ -113,7 +114,7 @@ function addListeners() {
 	if (listenersAttached || !elements.FAB || !elements.dockButtons) return
 
 	elements.FAB.addEventListener('click', onFABClick)
-	elements.dockButtons.addEventListener('click', onChangeTheme)
+	elements.dockButtons.addEventListener('click', onDockButtonClick)
 	listenersAttached = true
 }
 
@@ -121,9 +122,20 @@ function removeListeners() {
 	if (!listenersAttached) return
 
 	elements.FAB?.removeEventListener('click', onFABClick)
-	elements.dockButtons?.removeEventListener('click', onChangeTheme)
+	elements.dockButtons?.removeEventListener('click', onDockButtonClick)
 	document.removeEventListener('click', onOutsideClick, { capture: true })
 	listenersAttached = false
+}
+
+function onDockButtonClick(event) {
+	const button = event.target.closest('button[data-gpth-dock-btn]')
+	if (!button) return
+
+	if (button.id === SELECTORS.SETTINGS.OPEN_BTN) {
+		onToggleSettings()
+		return
+	}
+	onChangeTheme(event)
 }
 
 function onFABClick(e) {
@@ -213,19 +225,26 @@ async function init() {
 
 	try {
 		await createFAB()
-		if (token !== initToken || !elements.FAB?.isConnected) return
+		if (token !== initToken || !elements.FAB?.isConnected) {
+			cleanup()
+			return
+		}
 
 		// Initialize sub-modules
 		await createSettings()
-		if (token !== initToken || !elements.FAB?.isConnected) return
+		if (token !== initToken || !elements.FAB?.isConnected) {
+			cleanup()
+			return
+		}
 
-		removeMessagingListener = setupExtensionMessaging()
+		removeMessagingListener = setupExtensionMessaging(setFABVisibility)
 
 		// Listen for storage sync changes (cross-tab)
 		removeStorageWatcher = watchStorageChanges(onStorageChange)
 		isInitialized = true
 		return cleanup
 	} catch (err) {
+		cleanup()
 		console.error('[FAB:init] Failed:', err)
 		throw err
 	}
