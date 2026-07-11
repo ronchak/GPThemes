@@ -1,7 +1,9 @@
+import { subscribeDomChanges } from '../../runtime/domObserver.js'
+
 const DIALOG_ATTR = 'data-gpth-intelligence-dialog'
 
 let active = false
-let observer = null
+let removeDomListener = null
 const markedDialogs = new Set()
 
 function isIntelligenceDialog(dialog) {
@@ -46,15 +48,15 @@ function scan() {
 	for (const dialog of document.querySelectorAll('[role="dialog"]')) updateDialog(dialog)
 }
 
-function onMutations(records) {
+function onDomChanges(records) {
 	for (const record of records) {
-		if (record.type === 'characterData') {
-			processElement(record.target.parentElement)
-			continue
-		}
 		for (const node of record.removedNodes) releaseElement(node)
 		for (const node of record.addedNodes) {
-			processElement(node instanceof Element ? node : node.parentElement)
+			if (node instanceof Element) {
+				processElement(node)
+			} else if (node.parentElement?.closest('[role="dialog"]')) {
+				processElement(node.parentElement)
+			}
 		}
 	}
 }
@@ -63,14 +65,13 @@ function mount() {
 	if (active) return cleanup
 	active = true
 	scan()
-	observer = new MutationObserver(onMutations)
-	observer.observe(document.body, { characterData: true, childList: true, subtree: true })
+	removeDomListener = subscribeDomChanges(onDomChanges)
 	return cleanup
 }
 
 function cleanup() {
-	observer?.disconnect()
-	observer = null
+	removeDomListener?.()
+	removeDomListener = null
 	active = false
 	for (const dialog of markedDialogs) dialog.removeAttribute(DIALOG_ATTR)
 	markedDialogs.clear()
