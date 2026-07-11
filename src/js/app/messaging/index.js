@@ -1,28 +1,23 @@
 import browser from 'webextension-polyfill'
-import { toggleFABVisibility } from '../custom-fab/index'
 
 let removeMessageListener = null
+let setFABVisibility = null
 
-function getFABHiddenState(msg) {
-	if (typeof msg?.isHidden === 'boolean') return msg.isHidden
-	if (typeof msg?.hidden === 'boolean') return msg.hidden
-	if (typeof msg?.visible === 'boolean') return !msg.visible
+function getFABHiddenState(message) {
+	if (typeof message?.isHidden === 'boolean') return message.isHidden
+	if (typeof message?.hidden === 'boolean') return message.hidden
+	if (typeof message?.visible === 'boolean') return !message.visible
 	return false
 }
 
-/* Handles extension msgs for the FAB and other features */
-function setupExtensionMessaging() {
-	if (!browser?.runtime?.onMessage) return
+function setupExtensionMessaging(visibilityHandler) {
+	if (!browser?.runtime?.onMessage || typeof visibilityHandler !== 'function') return
+	setFABVisibility = visibilityHandler
 	if (removeMessageListener) return removeMessageListener
 
-	// browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-	const listener = (msg) => {
-		// console.log(msg)
-
-		if (msg?.action === 'toggleFABVisibility') {
-			toggleFABVisibility(getFABHiddenState(msg))
-			// No need to update storage here - popup already did that
-			return
+	const listener = (message) => {
+		if (message?.action === 'toggleFABVisibility') {
+			setFABVisibility?.(getFABHiddenState(message))
 		}
 	}
 
@@ -30,8 +25,8 @@ function setupExtensionMessaging() {
 	removeMessageListener = () => {
 		browser.runtime.onMessage.removeListener(listener)
 		removeMessageListener = null
+		setFABVisibility = null
 	}
-
 	return removeMessageListener
 }
 
