@@ -33,8 +33,14 @@ jobs:
               with:
                   deno-version: 'v2.x'
 
+            - name: Verify pinned font assets
+              run: pnpm verify:fonts
+
             - name: Build and package extensions
               run: pnpm build:all
+
+            - name: Verify packaged font assets
+              run: pnpm verify:font-packages
 
             - name: Resolve short commit SHA
               id: sha
