@@ -414,9 +414,11 @@ test('failed reset preserves inputs, CSS, and registered font faces atomically',
 	const source = await read('src/js/app/custom-fonts/index.js')
 	const executable = removeImports(source)
 		.replace(/export \{[\s\S]*?\}\s*$/, '')
-		.concat('\nglobalThis.__fontRuntime = { init, mount, resetAll }')
+		.concat('\nglobalThis.__fontRuntime = { handleNumeric, init, mount, resetAll }')
 	const added = []
 	const deleted = []
+	const writes = []
+	const numericWrites = []
 	const errors = []
 	const styles = new Map()
 	const elements = {
@@ -483,7 +485,10 @@ test('failed reset preserves inputs, CSS, and registered font faces atomically',
 		document: {
 			fonts: {
 				add: (face) => added.push(face),
-				delete: (face) => deleted.push(face),
+				delete: (face) => {
+					deleted.push(face)
+					throw new Error('font cleanup unavailable')
+				},
 			},
 			getElementById: (id) => (id === 'fontChangerPopover' ? {} : null),
 		},
@@ -495,10 +500,8 @@ test('failed reset preserves inputs, CSS, and registered font faces atomically',
 			textLetterSpacing: 1,
 		}),
 		removeVar: (name) => styles.delete(name),
-		setItem: async () => {},
-		setItems: async () => {
-			throw new Error('storage unavailable')
-		},
+		setItem: async (key, value) => numericWrites.push([key, value]),
+		setItems: async (values) => writes.push({ ...values }),
 		setVar: (name, value) => styles.set(name, value),
 		setVars: (values) => {
 			for (const [name, value] of Object.entries(values)) styles.set(name, value)
@@ -513,6 +516,18 @@ test('failed reset preserves inputs, CSS, and registered font faces atomically',
 	elements['#font-size'].value = '20'
 	elements['#line-height'].value = '35'
 	elements['#letter-spacing'].value = '2'
+	await context.__fontRuntime.handleNumeric(
+		{ target: elements['#font-size'] },
+		'fontSize',
+	)
+	await context.__fontRuntime.handleNumeric(
+		{ target: elements['#line-height'] },
+		'lineHeight',
+	)
+	await context.__fontRuntime.handleNumeric(
+		{ target: elements['#letter-spacing'] },
+		'letterSpacing',
+	)
 	const inputSnapshot = Object.fromEntries(
 		Object.entries(elements).map(([selector, element]) => [selector, element.value]),
 	)
@@ -528,7 +543,28 @@ test('failed reset preserves inputs, CSS, and registered font faces atomically',
 	)
 	assert.deepEqual([...styles], styleSnapshot)
 	assert.deepEqual(added, registeredSnapshot)
-	assert.deepEqual(deleted, [])
+	assert.equal(deleted.length, 1)
+	assert.deepEqual(numericWrites, [
+		['textFontSize', '20'],
+		['textLineHeight', '35'],
+		['textLetterSpacing', '2'],
+	])
+	assert.deepEqual(writes, [
+		{
+			textFontFamily: 'Default',
+			textFontFamilySecondary: 'Default',
+			textFontSize: 16,
+			textLineHeight: 28,
+			textLetterSpacing: 0,
+		},
+		{
+			textFontFamily: 'Inter',
+			textFontFamilySecondary: 'Poppins',
+			textFontSize: '20',
+			textLineHeight: '35',
+			textLetterSpacing: '2',
+		},
+	])
 	assert.deepEqual(errors, ['Failed to reset fonts'])
 })
 
@@ -920,6 +956,117 @@ test('cleanup during a pending catalog fetch prevents late faces and CSS', async
 	assert.deepEqual(added, [])
 	assert.deepEqual(styles, [])
 	assert.equal(context.__gpthBundledFontRegistry, undefined)
+})
+
+test('reinjection detaches a stale font mutation queue before reading storage', async () => {
+	const source = await read('src/js/app/custom-fonts/index.js')
+	const body = removeImports(source).replace(/export \{[\s\S]*?\}\s*$/, '')
+	const executable = `(function () { ${body}\nglobalThis.__fontRuntimes.push({ cleanup, handleFontFamilyChange, init }) })()`
+	let resolveInter
+	let storageRead = 0
+	const added = []
+	const context = {
+		$: () => null,
+		__fontRuntimes: [],
+		FONT_CATALOG_FILES: {
+			Inter: 'inter.generated.txt',
+			Poppins: 'poppins.generated.txt',
+		},
+		FONT_CATALOG_FINGERPRINT: 'reinjection-queue-test',
+		browser: {
+			runtime: {
+				getManifest: () => ({
+					manifest_version: 2,
+					web_accessible_resources: [
+						'inter.generated.hash.txt',
+						'poppins.generated.hash.txt',
+						'inter-test.hash.woff2',
+						'poppins-test.hash.woff2',
+					],
+				}),
+				getURL: (resource) => `moz-extension://test/${resource}`,
+			},
+		},
+		fetch: (url) => {
+			const family = url.includes('inter') ? 'Inter' : 'Poppins'
+			const response = {
+				ok: true,
+				json: async () => [
+					{
+						asset: `files/${family.toLowerCase()}-test.woff2`,
+						style: 'normal',
+						weight: '400',
+					},
+				],
+			}
+			if (family === 'Poppins') return Promise.resolve(response)
+			return new Promise((resolve) => {
+				resolveInter = () => resolve(response)
+			})
+		},
+		FontFace: class {
+			constructor(family) {
+				this.family = family
+			}
+		},
+		Notify: { error() {}, success() {} },
+		SELECTORS: {
+			FONT: {
+				FAMILY_ID: 'font-family',
+				FAMILY_SECONDARY_ID: 'font-family-secondary',
+				SIZE_ID: 'font-size',
+				LINE_HEIGHT_ID: 'line-height',
+				LETTER_SPACING_ID: 'letter-spacing',
+				RESET_BTN_ID: 'reset-fonts',
+			},
+		},
+		SK_TEXT_FONT_FAMILY: 'textFontFamily',
+		SK_TEXT_FONT_FAMILY_SECONDARY: 'textFontFamilySecondary',
+		SK_TEXT_FONT_SIZE: 'textFontSize',
+		SK_TEXT_LETTER_SPACING: 'textLetterSpacing',
+		SK_TEXT_LINE_HEIGHT: 'textLineHeight',
+		URL,
+		document: {
+			fonts: { add: (face) => added.push(face), delete() {} },
+			getElementById: () => null,
+		},
+		getItems: async () => {
+			storageRead += 1
+			return {
+				textFontFamily: storageRead === 1 ? 'Default' : 'Poppins',
+				textFontFamilySecondary: 'Default',
+			}
+		},
+		removeVar() {},
+		setItems: async () => {},
+		setVar() {},
+		setVars() {},
+	}
+	context.globalThis = context
+	vm.createContext(context)
+	vm.runInContext(executable, context)
+	await context.__fontRuntimes[0].init()
+
+	const staleMutation = context.__fontRuntimes[0].handleFontFamilyChange(
+		{ target: { value: 'Inter' } },
+		'fontFamily',
+	)
+	await new Promise((resolve) => setImmediate(resolve))
+	context.__fontRuntimes[0].cleanup()
+
+	vm.runInContext(executable, context)
+	const newInitialization = context.__fontRuntimes[1].init()
+	await new Promise((resolve) => setImmediate(resolve))
+	const readStorageBeforeStaleQueueSettled = storageRead === 2
+
+	resolveInter()
+	await Promise.all([staleMutation, newInitialization])
+
+	assert.equal(readStorageBeforeStaleQueueSettled, true)
+	assert.deepEqual(
+		added.map(({ family }) => family),
+		['Poppins'],
+	)
 })
 
 test('cleanup during a delayed storage read prevents stale init from resuming', async () => {

@@ -424,6 +424,7 @@ async function handleNumeric(e, key) {
 
 	setVar(cfg.cssVar, newVal)
 	await setItem(cfg.storageKey, newVal)
+	storedValues = { ...storedValues, [key]: newVal }
 }
 
 const formatFontForCSS = (font) => {
@@ -445,6 +446,19 @@ function fontStorageValues(pair) {
 		[CONFIG.fontFamily.storageKey]: pair.fontFamily,
 		[CONFIG.fontFamilySecondary.storageKey]: pair.fontFamilySecondary,
 	}
+}
+
+function previousStorageValues(storageValues, previousPair) {
+	const previousValues = {
+		...fontStorageValues(previousPair),
+		[CONFIG.fontSize.storageKey]: storedValues?.fontSize ?? CONFIG.fontSize.default,
+		[CONFIG.lineHeight.storageKey]: storedValues?.lineHeight ?? CONFIG.lineHeight.default,
+		[CONFIG.letterSpacing.storageKey]:
+			storedValues?.letterSpacing ?? CONFIG.letterSpacing.default,
+	}
+	return Object.fromEntries(
+		Object.keys(storageValues).map((storageKey) => [storageKey, previousValues[storageKey]]),
+	)
 }
 
 function applyFontPair(pair) {
@@ -480,6 +494,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 	const revision = ++fontMutations.revision
 	const lifecycleGeneration = fontLifecycleGeneration
 	const previousPair = storedFontPair()
+	const rollbackStorageValues = previousStorageValues(storageValues, previousPair)
 	fontMutations.desiredPair = { ...pair }
 
 	const operation = fontMutations.queue.then(async () => {
@@ -505,7 +520,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 			if (!isCurrentFontMutation(revision, lifecycleGeneration)) return false
 
 			try {
-				await setItems(fontStorageValues(previousPair))
+				await setItems(rollbackStorageValues)
 			} catch (rollbackError) {
 				console.error('Font storage rollback failed:', rollbackError)
 			}
@@ -666,6 +681,9 @@ async function init() {
 	// console.log('[INIT FONTS]')
 	const lifecycleGeneration = ++fontLifecycleGeneration
 	fontLifecycleActive = true
+	if (fontMutations.owner !== FONT_RUNTIME_OWNER) {
+		fontMutations.queue = Promise.resolve()
+	}
 	fontMutations.owner = FONT_RUNTIME_OWNER
 	const initializationRevision = ++fontMutations.revision
 	await fontMutations.queue
