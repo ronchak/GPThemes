@@ -1069,6 +1069,85 @@ test('reinjection detaches a stale font mutation queue before reading storage', 
 	)
 })
 
+test('reinjection waits for an in-flight font storage write before reading preferences', async () => {
+	const source = await read('src/js/app/custom-fonts/index.js')
+	const body = removeImports(source).replace(/export \{[\s\S]*?\}\s*$/, '')
+	const executable = `(function () { ${body}\nglobalThis.__fontRuntimes.push({ cleanup, handleFontFamilyChange, init }) })()`
+	let resolveStorageWrite
+	let storageRead = 0
+	const storage = {
+		textFontFamily: 'Default',
+		textFontFamilySecondary: 'Default',
+	}
+	const styles = new Map()
+	const context = {
+		$: () => null,
+		__fontRuntimes: [],
+		FONT_CATALOG_FILES: {},
+		FONT_CATALOG_FINGERPRINT: 'reinjection-storage-test',
+		browser: {
+			runtime: {
+				getManifest: () => ({ manifest_version: 2, web_accessible_resources: [] }),
+				getURL: () => '',
+			},
+		},
+		Notify: { error() {}, success() {} },
+		SELECTORS: {
+			FONT: {
+				FAMILY_ID: 'font-family',
+				FAMILY_SECONDARY_ID: 'font-family-secondary',
+				SIZE_ID: 'font-size',
+				LINE_HEIGHT_ID: 'line-height',
+				LETTER_SPACING_ID: 'letter-spacing',
+				RESET_BTN_ID: 'reset-fonts',
+			},
+		},
+		SK_TEXT_FONT_FAMILY: 'textFontFamily',
+		SK_TEXT_FONT_FAMILY_SECONDARY: 'textFontFamilySecondary',
+		SK_TEXT_FONT_SIZE: 'textFontSize',
+		SK_TEXT_LETTER_SPACING: 'textLetterSpacing',
+		SK_TEXT_LINE_HEIGHT: 'textLineHeight',
+		document: { fonts: { add() {}, delete() {} }, getElementById: () => null },
+		getItems: async () => {
+			storageRead += 1
+			return { ...storage }
+		},
+		removeVar: (name) => styles.delete(name),
+		setItems: (values) =>
+			new Promise((resolve) => {
+				resolveStorageWrite = () => {
+					Object.assign(storage, values)
+					resolve()
+				}
+			}),
+		setVar: (name, value) => styles.set(name, value),
+		setVars() {},
+	}
+	context.globalThis = context
+	vm.createContext(context)
+	vm.runInContext(executable, context)
+	await context.__fontRuntimes[0].init()
+
+	const staleMutation = context.__fontRuntimes[0].handleFontFamilyChange(
+		{ target: { value: 'FK Grotesk' } },
+		'fontFamily',
+	)
+	await new Promise((resolve) => setImmediate(resolve))
+	context.__fontRuntimes[0].cleanup()
+
+	vm.runInContext(executable, context)
+	const newInitialization = context.__fontRuntimes[1].init()
+	await new Promise((resolve) => setImmediate(resolve))
+	const waitedBeforeReadingStorage = storageRead === 1
+
+	resolveStorageWrite()
+	await Promise.all([staleMutation, newInitialization])
+
+	assert.equal(waitedBeforeReadingStorage, true)
+	assert.equal(storageRead, 2)
+	assert.match(styles.get('--gpthFontFamily'), /^"FK Grotesk"/)
+})
+
 test('cleanup during a delayed storage read prevents stale init from resuming', async () => {
 	const source = await read('src/js/app/custom-fonts/index.js')
 	const executable = removeImports(source)

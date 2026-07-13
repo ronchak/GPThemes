@@ -31,8 +31,10 @@ const fontMutations = globalThis[FONT_MUTATION_KEY] ?? {
 	owner: null,
 	queue: Promise.resolve(),
 	revision: 0,
+	storageWrites: Promise.resolve(),
 }
 globalThis[FONT_MUTATION_KEY] = fontMutations
+fontMutations.storageWrites ??= Promise.resolve()
 let fontLifecycleGeneration = 0
 let fontLifecycleActive = false
 
@@ -461,6 +463,15 @@ function previousStorageValues(storageValues, previousPair) {
 	)
 }
 
+function setFontStorageItems(storageValues) {
+	const write = setItems(storageValues)
+	fontMutations.storageWrites = write.then(
+		() => undefined,
+		() => undefined,
+	)
+	return write
+}
+
 function applyFontPair(pair) {
 	for (const key of ['fontFamily', 'fontFamilySecondary']) {
 		const value = pair[key]
@@ -502,7 +513,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 			await preloadBundledFontFamilies(pair)
 			if (!isCurrentFontMutation(revision, lifecycleGeneration)) return false
 
-			await setItems(storageValues)
+			await setFontStorageItems(storageValues)
 			if (!isCurrentFontMutation(revision, lifecycleGeneration)) return false
 
 			const synced = await syncBundledFontFamilies(
@@ -520,7 +531,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 			if (!isCurrentFontMutation(revision, lifecycleGeneration)) return false
 
 			try {
-				await setItems(rollbackStorageValues)
+				await setFontStorageItems(rollbackStorageValues)
 			} catch (rollbackError) {
 				console.error('Font storage rollback failed:', rollbackError)
 			}
@@ -686,6 +697,7 @@ async function init() {
 	}
 	fontMutations.owner = FONT_RUNTIME_OWNER
 	const initializationRevision = ++fontMutations.revision
+	await fontMutations.storageWrites
 	await fontMutations.queue
 	if (
 		!fontLifecycleActive ||
