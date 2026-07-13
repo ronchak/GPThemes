@@ -965,6 +965,12 @@ test('reinjection detaches a stale font mutation queue before reading storage', 
 	let resolveInter
 	let storageRead = 0
 	const added = []
+	const writes = []
+	const styles = new Map()
+	const storage = {
+		textFontFamily: 'Default',
+		textFontFamilySecondary: 'Default',
+	}
 	const context = {
 		$: () => null,
 		__fontRuntimes: [],
@@ -1032,14 +1038,14 @@ test('reinjection detaches a stale font mutation queue before reading storage', 
 		},
 		getItems: async () => {
 			storageRead += 1
-			return {
-				textFontFamily: storageRead === 1 ? 'Default' : 'Poppins',
-				textFontFamilySecondary: 'Default',
-			}
+			return { ...storage }
 		},
-		removeVar() {},
-		setItems: async () => {},
-		setVar() {},
+		removeVar: (name) => styles.delete(name),
+		setItems: async (values) => {
+			writes.push({ ...values })
+			Object.assign(storage, values)
+		},
+		setVar: (name, value) => styles.set(name, value),
 		setVars() {},
 	}
 	context.globalThis = context
@@ -1052,21 +1058,132 @@ test('reinjection detaches a stale font mutation queue before reading storage', 
 		'fontFamily',
 	)
 	await new Promise((resolve) => setImmediate(resolve))
+	const queuedMutation = context.__fontRuntimes[0].handleFontFamilyChange(
+		{ target: { value: 'FK Grotesk' } },
+		'fontFamily',
+	)
 	context.__fontRuntimes[0].cleanup()
 
 	vm.runInContext(executable, context)
 	const newInitialization = context.__fontRuntimes[1].init()
 	await new Promise((resolve) => setImmediate(resolve))
 	const readStorageBeforeStaleQueueSettled = storageRead === 2
+	const appliedQueuedPreferenceBeforeStaleQueueSettled =
+		styles.get('--gpthFontFamily')?.startsWith('"FK Grotesk"') === true
 
 	resolveInter()
-	await Promise.all([staleMutation, newInitialization])
+	await Promise.all([staleMutation, queuedMutation, newInitialization])
 
 	assert.equal(readStorageBeforeStaleQueueSettled, true)
-	assert.deepEqual(
-		added.map(({ family }) => family),
-		['Poppins'],
+	assert.equal(appliedQueuedPreferenceBeforeStaleQueueSettled, true)
+	assert.deepEqual(writes, [
+		{ textFontFamily: 'FK Grotesk', textFontFamilySecondary: 'Default' },
+	])
+	assert.deepEqual(added, [])
+})
+
+test('reinjection compensates a carried font mutation when registration fails', async () => {
+	const source = await read('src/js/app/custom-fonts/index.js')
+	const body = removeImports(source).replace(/export \{[\s\S]*?\}\s*$/, '')
+	const executable = `(function () { ${body}\nglobalThis.__fontRuntimes.push({ cleanup, handleFontFamilyChange, init }) })()`
+	let resolveInter
+	const writes = []
+	const styles = new Map()
+	const storage = {
+		textFontFamily: 'Default',
+		textFontFamilySecondary: 'Default',
+	}
+	const responseFor = (family) => ({
+		ok: true,
+		json: async () => [
+			{ asset: `files/${family.toLowerCase()}-missing.woff2`, style: 'normal', weight: '400' },
+		],
+	})
+	const context = {
+		$: () => null,
+		__fontRuntimes: [],
+		FONT_CATALOG_FILES: {
+			Inter: 'inter.generated.txt',
+			Poppins: 'poppins.generated.txt',
+		},
+		FONT_CATALOG_FINGERPRINT: 'reinjection-compensation-test',
+		browser: {
+			runtime: {
+				getManifest: () => ({
+					manifest_version: 2,
+					web_accessible_resources: [
+						'inter.generated.hash.txt',
+						'poppins.generated.hash.txt',
+					],
+				}),
+				getURL: (resource) => `moz-extension://test/${resource}`,
+			},
+		},
+		fetch: (url) => {
+			if (url.includes('poppins')) return Promise.resolve(responseFor('Poppins'))
+			return new Promise((resolve) => {
+				resolveInter = () => resolve(responseFor('Inter'))
+			})
+		},
+		FontFace: class {},
+		Notify: { error() {}, success() {} },
+		SELECTORS: {
+			FONT: {
+				FAMILY_ID: 'font-family',
+				FAMILY_SECONDARY_ID: 'font-family-secondary',
+				SIZE_ID: 'font-size',
+				LINE_HEIGHT_ID: 'line-height',
+				LETTER_SPACING_ID: 'letter-spacing',
+				RESET_BTN_ID: 'reset-fonts',
+			},
+		},
+		SK_TEXT_FONT_FAMILY: 'textFontFamily',
+		SK_TEXT_FONT_FAMILY_SECONDARY: 'textFontFamilySecondary',
+		SK_TEXT_FONT_SIZE: 'textFontSize',
+		SK_TEXT_LETTER_SPACING: 'textLetterSpacing',
+		SK_TEXT_LINE_HEIGHT: 'textLineHeight',
+		URL,
+		console: { error() {} },
+		document: { fonts: { add() {}, delete() {} }, getElementById: () => null },
+		getItems: async () => ({ ...storage }),
+		removeVar: (name) => styles.delete(name),
+		setItems: async (values) => {
+			writes.push({ ...values })
+			Object.assign(storage, values)
+		},
+		setVar: (name, value) => styles.set(name, value),
+		setVars() {},
+	}
+	context.globalThis = context
+	vm.createContext(context)
+	vm.runInContext(executable, context)
+	await context.__fontRuntimes[0].init()
+
+	const staleMutation = context.__fontRuntimes[0].handleFontFamilyChange(
+		{ target: { value: 'Inter' } },
+		'fontFamily',
 	)
+	await new Promise((resolve) => setImmediate(resolve))
+	const queuedMutation = context.__fontRuntimes[0].handleFontFamilyChange(
+		{ target: { value: 'Poppins' } },
+		'fontFamily',
+	)
+	context.__fontRuntimes[0].cleanup()
+
+	vm.runInContext(executable, context)
+	await context.__fontRuntimes[1].init()
+	resolveInter()
+	await Promise.all([staleMutation, queuedMutation])
+
+	assert.deepEqual(writes, [
+		{ textFontFamily: 'Poppins', textFontFamilySecondary: 'Default' },
+		{ textFontFamily: 'Default', textFontFamilySecondary: 'Default' },
+	])
+	assert.deepEqual(storage, {
+		textFontFamily: 'Default',
+		textFontFamilySecondary: 'Default',
+	})
+	assert.equal(styles.has('--gpthFontFamily'), false)
 })
 
 test('reinjection waits for an in-flight font storage write before reading preferences', async () => {

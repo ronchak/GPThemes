@@ -29,12 +29,14 @@ const catalogPromises = new Map()
 const fontMutations = globalThis[FONT_MUTATION_KEY] ?? {
 	desiredPair: null,
 	owner: null,
+	pendingMutation: null,
 	queue: Promise.resolve(),
 	revision: 0,
 	storageWrites: Promise.resolve(),
 }
 globalThis[FONT_MUTATION_KEY] = fontMutations
 fontMutations.storageWrites ??= Promise.resolve()
+fontMutations.pendingMutation ??= null
 let fontLifecycleGeneration = 0
 let fontLifecycleActive = false
 
@@ -507,6 +509,11 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 	const previousPair = storedFontPair()
 	const rollbackStorageValues = previousStorageValues(storageValues, previousPair)
 	fontMutations.desiredPair = { ...pair }
+	fontMutations.pendingMutation = {
+		pair: { ...pair },
+		rollbackStorageValues: { ...rollbackStorageValues },
+		storageValues: { ...storageValues },
+	}
 
 	const operation = fontMutations.queue.then(async () => {
 		try {
@@ -524,6 +531,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 
 			commit()
 			fontMutations.desiredPair = { ...pair }
+			fontMutations.pendingMutation = null
 			Notify.success(successMessage)
 			return true
 		} catch (error) {
@@ -538,6 +546,7 @@ function enqueueFontMutation({ pair, storageValues, commit, successMessage, erro
 			if (!isCurrentFontMutation(revision, lifecycleGeneration)) return false
 
 			fontMutations.desiredPair = { ...previousPair }
+			fontMutations.pendingMutation = null
 			await syncBundledFontFamilies(
 				[previousPair.fontFamily, previousPair.fontFamilySecondary],
 				() => isCurrentFontMutation(revision, lifecycleGeneration),
@@ -692,6 +701,15 @@ async function init() {
 	// console.log('[INIT FONTS]')
 	const lifecycleGeneration = ++fontLifecycleGeneration
 	fontLifecycleActive = true
+	const inheritedMutation = fontMutations.pendingMutation
+		? {
+				pair: { ...fontMutations.pendingMutation.pair },
+				rollbackStorageValues: {
+					...fontMutations.pendingMutation.rollbackStorageValues,
+				},
+				storageValues: { ...fontMutations.pendingMutation.storageValues },
+			}
+		: null
 	if (fontMutations.owner !== FONT_RUNTIME_OWNER) {
 		fontMutations.queue = Promise.resolve()
 	}
@@ -728,31 +746,74 @@ async function init() {
 	}
 	const getStoredOrDefault = (configKey) =>
 		stored[CONFIG[configKey].storageKey] ?? CONFIG[configKey].default
+	const isInitializationCurrent = () =>
+		fontLifecycleActive &&
+		lifecycleGeneration === fontLifecycleGeneration &&
+		fontMutations.owner === FONT_RUNTIME_OWNER &&
+		initializationRevision === fontMutations.revision
 
-	const fontFamily = getStoredOrDefault('fontFamily')
-	const fontFamilySecondary = getStoredOrDefault('fontFamilySecondary')
-	const fontSize = getStoredOrDefault('fontSize')
-	const lineHeight = getStoredOrDefault('lineHeight')
-	const letterSpacing = getStoredOrDefault('letterSpacing')
-	const pair = { fontFamily, fontFamilySecondary }
+	const pendingValueOrStored = (configKey) =>
+		inheritedMutation?.storageValues[CONFIG[configKey].storageKey] ??
+		getStoredOrDefault(configKey)
+	let fontFamily = inheritedMutation?.pair.fontFamily ?? getStoredOrDefault('fontFamily')
+	let fontFamilySecondary =
+		inheritedMutation?.pair.fontFamilySecondary ?? getStoredOrDefault('fontFamilySecondary')
+	let fontSize = pendingValueOrStored('fontSize')
+	let lineHeight = pendingValueOrStored('lineHeight')
+	let letterSpacing = pendingValueOrStored('letterSpacing')
+	let pair = { fontFamily, fontFamilySecondary }
 	fontMutations.desiredPair = { ...pair }
-	const isCurrent = await syncBundledFontFamilies(
-		[fontFamily, fontFamilySecondary],
-		() =>
-			fontLifecycleActive &&
-			lifecycleGeneration === fontLifecycleGeneration &&
-			fontMutations.owner === FONT_RUNTIME_OWNER &&
-			initializationRevision === fontMutations.revision,
-	)
-	if (
-		!isCurrent ||
-		!fontLifecycleActive ||
-		lifecycleGeneration !== fontLifecycleGeneration ||
-		fontMutations.owner !== FONT_RUNTIME_OWNER ||
-		initializationRevision !== fontMutations.revision
-	) {
-		return
+	const pendingStorageNeedsWrite =
+		inheritedMutation &&
+		Object.entries(inheritedMutation.storageValues).some(
+			([storageKey, value]) => stored[storageKey] !== value,
+		)
+	let inheritedStorageWritten = Boolean(inheritedMutation && !pendingStorageNeedsWrite)
+	let isCurrent
+	try {
+		if (pendingStorageNeedsWrite) {
+			await preloadBundledFontFamilies(pair)
+			if (!isInitializationCurrent()) return
+			await setFontStorageItems(inheritedMutation.storageValues)
+			inheritedStorageWritten = true
+			if (!isInitializationCurrent()) return
+		}
+		isCurrent = await syncBundledFontFamilies(
+			[fontFamily, fontFamilySecondary],
+			isInitializationCurrent,
+		)
+	} catch (error) {
+		if (!inheritedMutation || !isInitializationCurrent()) throw error
+		console.error('Inherited font mutation failed:', error)
+		if (inheritedStorageWritten) {
+			try {
+				await setFontStorageItems(inheritedMutation.rollbackStorageValues)
+			} catch (rollbackError) {
+				console.error('Inherited font storage rollback failed:', rollbackError)
+			}
+			if (!isInitializationCurrent()) return
+		}
+
+		const restored = {
+			...stored,
+			...(inheritedStorageWritten ? inheritedMutation.rollbackStorageValues : {}),
+		}
+		const restoredOrDefault = (configKey) =>
+			restored[CONFIG[configKey].storageKey] ?? CONFIG[configKey].default
+		fontFamily = restoredOrDefault('fontFamily')
+		fontFamilySecondary = restoredOrDefault('fontFamilySecondary')
+		fontSize = restoredOrDefault('fontSize')
+		lineHeight = restoredOrDefault('lineHeight')
+		letterSpacing = restoredOrDefault('letterSpacing')
+		pair = { fontFamily, fontFamilySecondary }
+		fontMutations.desiredPair = { ...pair }
+		fontMutations.pendingMutation = null
+		isCurrent = await syncBundledFontFamilies(
+			[fontFamily, fontFamilySecondary],
+			isInitializationCurrent,
+		)
 	}
+	if (!isCurrent || !isInitializationCurrent()) return
 
 	// 2. Update DOM (CSS vars)
 	applyFontPair(pair)
@@ -764,6 +825,7 @@ async function init() {
 	})
 
 	storedValues = { fontFamily, fontFamilySecondary, fontSize, lineHeight, letterSpacing }
+	fontMutations.pendingMutation = null
 
 	// console.log(storedValues)
 
@@ -786,7 +848,6 @@ function cleanup() {
 	fontLifecycleGeneration += 1
 	if (fontMutations.owner === FONT_RUNTIME_OWNER) {
 		fontMutations.revision += 1
-		fontMutations.desiredPair = storedValues ? storedFontPair() : null
 		fontMutations.owner = null
 	}
 	unregisterAllBundledFonts()
