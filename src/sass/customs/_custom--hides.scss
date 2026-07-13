@@ -59,10 +59,13 @@ html[data-gpth-hide-upgrade-chip] {
 
 html[data-gpth-hide-recents-pill] [data-gpth-sidebar-pill-wrapper="recents"],
 html[data-gpth-hide-gpts-pill] [data-gpth-sidebar-pill-wrapper="gpts"],
+html[data-gpth-hide-pinned-pill] [data-gpth-sidebar-pill-wrapper="pinned"],
 html[data-gpth-hide-recents-pill] #stage-slideover-sidebar nav button[data-gpth-sidebar-pill-wrapper="recents"],
 html[data-gpth-hide-recents-pill] #stage-popover-sidebar nav button[data-gpth-sidebar-pill-wrapper="recents"],
 html[data-gpth-hide-gpts-pill] #stage-slideover-sidebar nav button[data-gpth-sidebar-pill-wrapper="gpts"],
-html[data-gpth-hide-gpts-pill] #stage-popover-sidebar nav button[data-gpth-sidebar-pill-wrapper="gpts"] {
+html[data-gpth-hide-gpts-pill] #stage-popover-sidebar nav button[data-gpth-sidebar-pill-wrapper="gpts"],
+html[data-gpth-hide-pinned-pill] #stage-slideover-sidebar nav button[data-gpth-sidebar-pill-wrapper="pinned"],
+html[data-gpth-hide-pinned-pill] #stage-popover-sidebar nav button[data-gpth-sidebar-pill-wrapper="pinned"] {
     background: transparent !important;
     box-shadow: none !important;
     border: 0 !important;
@@ -71,7 +74,9 @@ html[data-gpth-hide-gpts-pill] #stage-popover-sidebar nav button[data-gpth-sideb
 html[data-gpth-hide-recents-pill] #stage-slideover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="recents"],
 html[data-gpth-hide-recents-pill] #stage-popover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="recents"],
 html[data-gpth-hide-gpts-pill] #stage-slideover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="gpts"],
-html[data-gpth-hide-gpts-pill] #stage-popover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="gpts"] {
+html[data-gpth-hide-gpts-pill] #stage-popover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="gpts"],
+html[data-gpth-hide-pinned-pill] #stage-slideover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="pinned"],
+html[data-gpth-hide-pinned-pill] #stage-popover-sidebar nav button h2.__menu-label[data-gpth-sidebar-pill="pinned"] {
     background-color: transparent !important;
     box-shadow: none !important;
     border-radius: 0 !important;

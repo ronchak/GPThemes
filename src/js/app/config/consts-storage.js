@@ -12,6 +12,7 @@ export const SK_TOGGLE_HIDE_HEADER = 'hideHeader'
 export const SK_TOGGLE_HIDE_FOOTER = 'hideFooter'
 export const SK_TOGGLE_HIDE_RECENTS_PILL = 'hideRecentsPill'
 export const SK_TOGGLE_HIDE_GPTS_PILL = 'hideGPTsPill'
+export const SK_TOGGLE_HIDE_PINNED_PILL = 'hidePinnedPill'
 export const SK_TOGGLE_HIDE_UPGRADE_CHIP = 'hideUpgradeChip'
 export const SK_TOGGLE_CHATBOX_HEIGHT = 'toggleChatboxHeightState'
 export const SK_TOGGLE_EXPAND_PULSE_CARDS = 'toggleExpandPulseCardsState'
@@ -62,6 +63,7 @@ export const EXPORT_CONFIG = Object.freeze({
 		SK_TOGGLE_HIDE_FOOTER,
 		SK_TOGGLE_HIDE_RECENTS_PILL,
 		SK_TOGGLE_HIDE_GPTS_PILL,
+		SK_TOGGLE_HIDE_PINNED_PILL,
 		SK_TOGGLE_HIDE_UPGRADE_CHIP,
 		SK_TOGGLE_EXPAND_PULSE_CARDS,
 		SK_TOGGLE_FAB_HIDDEN,

@@ -92,3 +92,13 @@ test('activity panel mutation processing does not force computed-style resolutio
 	assert.doesNotMatch(activityPanel, /getComputedStyle/)
 	assert.doesNotMatch(activityPanel, /data-gpth-activity-surface/)
 })
+
+test('sidebar pill controls include the current Pinned section label', async () => {
+	const pills = await source('src/js/app/custom-hide/sidebarPills.js')
+	const hides = await source('src/sass/customs/_custom--hides.scss')
+	const hiddenElements = await source('src/js/app/config/consts-hidden-els.js')
+
+	assert.match(pills, /pinned:\s*'pinned'/)
+	assert.match(hides, /data-gpth-hide-pinned-pill/)
+	assert.match(hiddenElements, /label:\s*'Hide Pinned Pill'/)
+})

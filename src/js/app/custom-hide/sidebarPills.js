@@ -7,6 +7,7 @@ const LABEL_SELECTOR = '.__menu-label'
 const PILL_LABELS = {
 	recents: 'recents',
 	gpts: 'gpts',
+	pinned: 'pinned',
 }
 
 let markerRoot = null
@@ -30,7 +31,7 @@ function syncSidebarPillMarkers() {
 		const normalized = normalizeLabel(label.textContent)
 		const wrapper = label.closest('button')
 
-		if (normalized === PILL_LABELS.recents || normalized === PILL_LABELS.gpts) {
+		if (Object.values(PILL_LABELS).includes(normalized)) {
 			label.setAttribute(PILL_ATTR, normalized)
 			wrapper?.setAttribute(PILL_WRAPPER_ATTR, normalized)
 		} else {

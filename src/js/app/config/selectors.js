@@ -122,6 +122,10 @@ export const SELECTORS = {
 			TOGGLE_ID: `${PFX}-hide-gpts-pill`,
 			SELECTOR: `.__menu-label[data-gpth-sidebar-pill="gpts"]`,
 		},
+		PINNED_PILL: {
+			TOGGLE_ID: `${PFX}-hide-pinned-pill`,
+			SELECTOR: `.__menu-label[data-gpth-sidebar-pill="pinned"]`,
+		},
 		UPGRADE: {
 			TOGGLE_ID: `${PFX}-hide-upgrade-chip`,
 			SELECTOR:
