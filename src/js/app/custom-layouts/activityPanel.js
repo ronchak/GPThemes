@@ -86,7 +86,7 @@ function winsInlineCascade(candidate, current) {
 function backgroundShorthandMayHaveImage(value) {
 	if (isThemeableBackground(value)) return false
 	const normalized = value.trim().toLowerCase()
-	return !/^(?:none|transparent|currentcolor|[a-z]+|#[\da-f]{3,8}|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.+\))$/i.test(
+	return !/^(?:none|transparent|currentcolor|#[\da-f]{3,8}|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.+\))$/i.test(
 		normalized,
 	)
 }

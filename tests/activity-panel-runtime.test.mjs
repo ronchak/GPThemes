@@ -174,6 +174,15 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	const separateImage = new FakeElement('div', {
 		style: 'background-color: var(--card-background); background-image: url(hero.png)',
 	})
+	const inheritedImage = new FakeElement('div', {
+		style: 'background-color: var(--card-background) !important; background: inherit',
+	})
+	const laterDuplicateDark = new FakeElement('div', {
+		style: 'background-color: var(--card-background); background-color: rgb(20 20 20)',
+	})
+	const laterDuplicateThemeable = new FakeElement('div', {
+		style: 'background-color: rgb(20 20 20); background-color: var(--card-background)',
+	})
 	const surfaces = [
 		themedSurface,
 		gradient,
@@ -192,6 +201,9 @@ test('themes new inline activity surfaces without style resolution and cleans up
 		importantThemeableFirst,
 		importantDarkLast,
 		separateImage,
+		inheritedImage,
+		laterDuplicateDark,
+		laterDuplicateThemeable,
 	]
 	panel.append(...surfaces)
 	FakeMutationObserver.instance.trigger(surfaces)
@@ -213,6 +225,9 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	assert.equal(importantThemeableFirst.hasAttribute(SURFACE_ATTR), true)
 	assert.equal(importantDarkLast.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(separateImage.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(inheritedImage.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(laterDuplicateDark.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(laterDuplicateThemeable.hasAttribute(SURFACE_ATTR), true)
 
 	const outsideSurface = new FakeElement('div', {
 		style: 'background: var(--card-background)',
