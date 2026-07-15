@@ -54,7 +54,8 @@ test('current writing and collapsible-message controls inherit themed surfaces',
 test('Hide Footer targets the current disclaimer without relying on a generic utility', async () => {
 	const selectors = await source('src/js/app/config/selectors.js')
 	const hides = await source('src/sass/customs/_custom--hides.scss')
-	const currentFooter = /#main #thread-bottom-container > \[data-testid=["']thread-disclaimer["']\]/
+	const currentFooter =
+		/#main #thread-bottom-container > \[data-testid=["']thread-disclaimer["']\]/
 	const broadFooter = /#main #thread-bottom-container > \.mt-auto/
 
 	for (const value of [selectors, hides]) {
@@ -69,7 +70,9 @@ test('full theme CSS waits until document idle in every extension manifest', asy
 		'src/manifests/firefox-mv2/manifest.json',
 	]) {
 		const manifest = JSON.parse(await source(path))
-		const startScript = manifest.content_scripts.find(({ run_at }) => run_at === 'document_start')
+		const startScript = manifest.content_scripts.find(
+			({ run_at }) => run_at === 'document_start',
+		)
 		const idleScript = manifest.content_scripts.find(({ run_at }) => run_at === 'document_idle')
 
 		assert.deepEqual(startScript.js, ['../../js/inject-theme.js'])
@@ -86,11 +89,17 @@ test('suggested prompts use stable runtime markers without relational host fallb
 	assert.doesNotMatch(textarea, /body:has\(#prompt-textarea\)/)
 })
 
-test('activity panel mutation processing does not force computed-style resolution', async () => {
+test('activity panel mutation processing themes inline descendants without computed-style resolution', async () => {
 	const activityPanel = await source('src/js/app/custom-layouts/activityPanel.js')
+	const search = await source('src/sass/elements/_search.scss')
 
 	assert.doesNotMatch(activityPanel, /getComputedStyle/)
-	assert.doesNotMatch(activityPanel, /data-gpth-activity-surface/)
+	assert.match(activityPanel, /INLINE_BACKGROUND_SELECTOR\s*=\s*'\[style\*="background" i\]'/)
+	assert.match(activityPanel, /hasThemeableInlineBackground\(element\)/)
+	assert.match(
+		search,
+		/\[data-gpth-activity-surface\]\s*\{[^}]*background:\s*var\(--c-surface-2\)\s*!important;/s,
+	)
 })
 
 test('sidebar pill controls include the current Pinned section label', async () => {
