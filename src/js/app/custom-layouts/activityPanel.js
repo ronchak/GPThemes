@@ -31,29 +31,46 @@ function isLightColor(value) {
 	const normalized = value.trim().toLowerCase()
 	if (/^(?:white|snow|ivory|floralwhite|whitesmoke)$/.test(normalized)) return true
 
-	const hex = normalized.match(/^#([\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/)
+	const hex = normalized.match(/^#([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/)
 	if (hex) {
-		const digits =
-			hex[1].length === 3 ? [...hex[1]].map((digit) => digit.repeat(2)).join('') : hex[1]
-		const [red, green, blue] = digits
-			.match(/.{2}/g)
-			.slice(0, 3)
-			.map((channel) => Number.parseInt(channel, 16))
+		const digits = [3, 4].includes(hex[1].length)
+			? [...hex[1]].map((digit) => digit.repeat(2)).join('')
+			: hex[1]
+		const channels = digits.match(/.{2}/g).map((channel) => Number.parseInt(channel, 16))
+		const [red, green, blue, alpha = 255] = channels
+		if (alpha / 255 < 0.5) return false
 		return (0.299 * red + 0.587 * green + 0.114 * blue) / 255 > 0.7
 	}
 
-	const rgb = normalized.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)/)
+	const rgb = normalized.match(/^rgba?\((.+)\)$/)
 	if (!rgb) return false
+	const channels = rgb[1].match(/(?:\d+(?:\.\d+)?|\.\d+)%?/g)
+	if (!channels || channels.length < 3) return false
 
-	const [, red, green, blue] = rgb.map(Number)
+	const [red, green, blue] = channels
+		.slice(0, 3)
+		.map((channel) =>
+			channel.endsWith('%') ? Number.parseFloat(channel) * 2.55 : Number.parseFloat(channel),
+		)
+	const alphaValue = channels[3]
+	const alpha = alphaValue
+		? alphaValue.endsWith('%')
+			? Number.parseFloat(alphaValue) / 100
+			: Number.parseFloat(alphaValue)
+		: 1
+	if (alpha < 0.5) return false
+
 	return (0.299 * red + 0.587 * green + 0.114 * blue) / 255 > 0.7
 }
 
 function isThemeableBackground(value) {
-	const token = value.match(/var\(\s*--([\w-]+)/i)?.[1]
-	return token
-		? SURFACE_TOKEN_PATTERN.test(token) && !INTERACTION_TOKEN_PATTERN.test(token)
-		: isLightColor(value.replace(/\s*!important\s*$/i, ''))
+	const normalized = value.replace(/\s*!important\s*$/i, '').trim()
+	const variable = normalized.match(/^var\(\s*--([\w-]+)(?:\s*,\s*(.+))?\)$/i)
+	if (!variable) return isLightColor(normalized)
+
+	const [, token, fallback] = variable
+	if (!SURFACE_TOKEN_PATTERN.test(token) || INTERACTION_TOKEN_PATTERN.test(token)) return false
+	return !fallback || isLightColor(fallback)
 }
 
 function hasThemeableInlineBackground(element) {

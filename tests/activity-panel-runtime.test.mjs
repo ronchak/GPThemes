@@ -135,13 +135,54 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	const imageSurface = new FakeElement('div', {
 		style: 'background: var(--image-bg)',
 	})
-	panel.append(themedSurface, gradient, accentSurface, imageSurface)
-	FakeMutationObserver.instance.trigger([themedSurface, gradient, accentSurface, imageSurface])
+	const compoundImage = new FakeElement('div', {
+		style: 'background: var(--card-background) url(hero.png) center/cover',
+	})
+	const compoundGradient = new FakeElement('div', {
+		style: 'background: linear-gradient(var(--main-surface-primary), transparent)',
+	})
+	const reverseCompoundImage = new FakeElement('div', {
+		style: 'background: url(hero.png) var(--main-surface-primary)',
+	})
+	const imageFallback = new FakeElement('div', {
+		style: 'background: var(--card-background, url(fallback.png))',
+	})
+	const transparentHex = new FakeElement('div', {
+		style: 'background: #ffffff00',
+	})
+	const translucentWhite = new FakeElement('div', {
+		style: 'background-color: rgb(255 255 255 / 20%)',
+	})
+	const opaqueWhite = new FakeElement('div', {
+		style: 'background-color: rgba(255, 255, 255, 0.8)',
+	})
+	const surfaces = [
+		themedSurface,
+		gradient,
+		accentSurface,
+		imageSurface,
+		compoundImage,
+		compoundGradient,
+		reverseCompoundImage,
+		imageFallback,
+		transparentHex,
+		translucentWhite,
+		opaqueWhite,
+	]
+	panel.append(...surfaces)
+	FakeMutationObserver.instance.trigger(surfaces)
 
 	assert.equal(themedSurface.hasAttribute(SURFACE_ATTR), true)
 	assert.equal(gradient.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(accentSurface.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(imageSurface.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(compoundImage.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(compoundGradient.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(reverseCompoundImage.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(imageFallback.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(transparentHex.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(translucentWhite.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(opaqueWhite.hasAttribute(SURFACE_ATTR), true)
 
 	const outsideSurface = new FakeElement('div', {
 		style: 'background: var(--card-background)',
