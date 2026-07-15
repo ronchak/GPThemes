@@ -159,6 +159,21 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	const opaqueWhite = new FakeElement('div', {
 		style: 'background-color: rgba(255, 255, 255, 0.8)',
 	})
+	const laterDarkLonghand = new FakeElement('div', {
+		style: 'background: var(--card-background); background-color: rgb(20 20 20)',
+	})
+	const laterThemeableLonghand = new FakeElement('div', {
+		style: 'background: rgb(20 20 20); background-color: var(--card-background)',
+	})
+	const importantThemeableFirst = new FakeElement('div', {
+		style: 'background-color: var(--card-background) !important; background: rgb(20 20 20)',
+	})
+	const importantDarkLast = new FakeElement('div', {
+		style: 'background: var(--card-background); background-color: rgb(20 20 20) !important',
+	})
+	const separateImage = new FakeElement('div', {
+		style: 'background-color: var(--card-background); background-image: url(hero.png)',
+	})
 	const surfaces = [
 		themedSurface,
 		gradient,
@@ -172,6 +187,11 @@ test('themes new inline activity surfaces without style resolution and cleans up
 		translucentWhite,
 		variableAlpha,
 		opaqueWhite,
+		laterDarkLonghand,
+		laterThemeableLonghand,
+		importantThemeableFirst,
+		importantDarkLast,
+		separateImage,
 	]
 	panel.append(...surfaces)
 	FakeMutationObserver.instance.trigger(surfaces)
@@ -188,6 +208,11 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	assert.equal(translucentWhite.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(variableAlpha.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(opaqueWhite.hasAttribute(SURFACE_ATTR), true)
+	assert.equal(laterDarkLonghand.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(laterThemeableLonghand.hasAttribute(SURFACE_ATTR), true)
+	assert.equal(importantThemeableFirst.hasAttribute(SURFACE_ATTR), true)
+	assert.equal(importantDarkLast.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(separateImage.hasAttribute(SURFACE_ATTR), false)
 
 	const outsideSurface = new FakeElement('div', {
 		style: 'background: var(--card-background)',

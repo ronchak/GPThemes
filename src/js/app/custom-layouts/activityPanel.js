@@ -77,12 +77,53 @@ function isThemeableBackground(value) {
 	return !fallback || isLightColor(fallback)
 }
 
+function winsInlineCascade(candidate, current) {
+	if (!current) return true
+	if (candidate.important !== current.important) return candidate.important
+	return candidate.index > current.index
+}
+
+function backgroundShorthandMayHaveImage(value) {
+	if (isThemeableBackground(value)) return false
+	const normalized = value.trim().toLowerCase()
+	return !/^(?:none|transparent|currentcolor|[a-z]+|#[\da-f]{3,8}|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.+\))$/i.test(
+		normalized,
+	)
+}
+
 function hasThemeableInlineBackground(element) {
 	const inlineStyle = element.getAttribute('style') || ''
-	return inlineStyle.split(';').some((declaration) => {
-		const match = declaration.match(/^\s*background(?:-color)?\s*:\s*(.+?)\s*$/i)
-		return match ? isThemeableBackground(match[1]) : false
-	})
+	let colorDeclaration = null
+	let imageDeclaration = null
+
+	for (const [index, declaration] of inlineStyle.split(';').entries()) {
+		const match = declaration.match(/^\s*(background|background-color|background-image)\s*:\s*(.+?)\s*$/i)
+		if (!match) continue
+
+		const property = match[1].toLowerCase()
+		const important = /\s*!important\s*$/i.test(match[2])
+		const value = match[2].replace(/\s*!important\s*$/i, '').trim()
+		const candidate = { important, index, value }
+
+		if (property !== 'background-image' && winsInlineCascade(candidate, colorDeclaration)) {
+			colorDeclaration = candidate
+		}
+		if (property !== 'background-color' && winsInlineCascade(candidate, imageDeclaration)) {
+			imageDeclaration = {
+				...candidate,
+				hasImage:
+					property === 'background-image'
+						? value.toLowerCase() !== 'none'
+						: backgroundShorthandMayHaveImage(value),
+			}
+		}
+	}
+
+	return (
+		!!colorDeclaration &&
+		isThemeableBackground(colorDeclaration.value) &&
+		!imageDeclaration?.hasImage
+	)
 }
 
 function markChildSurfaces(panel, root = panel) {
