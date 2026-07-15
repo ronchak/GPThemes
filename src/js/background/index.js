@@ -72,7 +72,6 @@ async function injectThemeStyles(sender) {
 	await globalThis.chrome.scripting.insertCSS({
 		files: [getThemeCssPath()],
 		target: {
-			allFrames: false,
 			frameIds: [sender.frameId || 0],
 			tabId,
 		},

@@ -89,6 +89,7 @@ test('full theme CSS avoids the Chromium startup path and keeps Firefox idle tim
 	)
 	assert.match(background, /chrome\?\.scripting/)
 	assert.match(background, /scripting\.insertCSS/)
+	assert.doesNotMatch(background, /allFrames/)
 	assert.match(content, /action:\s*'injectThemeStyles'/)
 })
 
