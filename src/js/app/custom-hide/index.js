@@ -14,6 +14,7 @@ const ELEMENTS_MAP = new Map(ELEMENTS.map((config) => [config.id, config]))
 const PILL_TOGGLE_IDS = new Set([
 	SELECTORS.HIDE.RECENTS_PILL.TOGGLE_ID,
 	SELECTORS.HIDE.GPTS_PILL.TOGGLE_ID,
+	SELECTORS.HIDE.PINNED_PILL.TOGGLE_ID,
 ])
 
 let currentStates = {}

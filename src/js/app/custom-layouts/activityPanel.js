@@ -4,18 +4,11 @@ const PANEL_ATTR = 'data-gpth-activity-panel'
 const SURFACE_ATTR = 'data-gpth-activity-surface'
 const CANDIDATE_SELECTOR =
 	'aside, [role="complementary"], [data-testid*="flyout" i], [data-testid*="activity" i], [class*="flyout" i]'
-const SURFACE_SELECTOR = [
-	'[class*="bg-neutral-"]',
-	'[class*="bg-gray-"]',
-	'[class*="bg-white"]',
-	'[class*="bg-[#f"]',
-	'[class*="bg-[#e"]',
-	'[class*="bg-[#d"]',
-	'[class*="bg-[#F"]',
-	'[class*="bg-[#E"]',
-	'[class*="bg-[#D"]',
-	'[style*="background"]',
-].join(',')
+const INLINE_BACKGROUND_SELECTOR = '[style*="background" i]'
+const SURFACE_TOKEN_PATTERN =
+	/^(?:bg-(?:primary|secondary|tertiary|elevated(?:-[\w-]+)?|neutral(?:-[\w-]+)?|gr[ae]y(?:-[\w-]+)?|white)|(?:main|popover)-surface(?:-[\w-]+)?|(?:card|panel|container)-(?:bg|background|surface)(?:-[\w-]+)?|(?:background|surface)-(?:primary|secondary|tertiary|elevated)(?:-[\w-]+)?|(?:neutral|gr[ae]y|white)-(?:bg|background|surface)(?:-[\w-]+)?)$/i
+const INTERACTION_TOKEN_PATTERN =
+	/(?:^|-)(?:accent|badge|button|hover|active|selected|interactive|status|success|warning|danger|error|info)(?:-|$)/i
 
 let active = false
 let removeDomSubscription = null
@@ -29,31 +22,113 @@ function isActivityPanel(element) {
 	)
 }
 
-function isLightBackground(element) {
-	const background = window.getComputedStyle(element).backgroundColor
-	if (!background || background === 'transparent' || background === 'rgba(0, 0, 0, 0)') {
-		return false
-	}
-
-	const match = background.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-	if (!match) return false
-
-	const [, red, green, blue] = match.map(Number)
-	const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
-	return luminance > 0.7
-}
-
 function getMatches(root, selector) {
 	if (!(root instanceof HTMLElement)) return []
-	return [
-		...(root.matches(selector) ? [root] : []),
-		...root.querySelectorAll(selector),
-	]
+	return [...(root.matches(selector) ? [root] : []), ...root.querySelectorAll(selector)]
+}
+
+function isLightColor(value) {
+	const normalized = value.trim().toLowerCase()
+	if (/^(?:white|snow|ivory|floralwhite|whitesmoke)$/.test(normalized)) return true
+
+	const hex = normalized.match(/^#([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/)
+	if (hex) {
+		const digits = [3, 4].includes(hex[1].length)
+			? [...hex[1]].map((digit) => digit.repeat(2)).join('')
+			: hex[1]
+		const channels = digits.match(/.{2}/g).map((channel) => Number.parseInt(channel, 16))
+		const [red, green, blue, alpha = 255] = channels
+		if (alpha / 255 < 0.5) return false
+		return (0.299 * red + 0.587 * green + 0.114 * blue) / 255 > 0.7
+	}
+
+	const rgb = normalized.match(/^rgba?\((.+)\)$/)
+	if (!rgb) return false
+	if (/[a-z]/i.test(rgb[1])) return false
+	const channels = rgb[1].match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?/g)
+	if (!channels || channels.length < 3) return false
+	const hasExplicitAlpha =
+		normalized.startsWith('rgba(') || rgb[1].includes('/') || rgb[1].split(',').length > 3
+	if (hasExplicitAlpha && channels.length < 4) return false
+
+	const [red, green, blue] = channels
+		.slice(0, 3)
+		.map((channel) =>
+			channel.endsWith('%') ? Number.parseFloat(channel) * 2.55 : Number.parseFloat(channel),
+		)
+	const alphaValue = channels[3]
+	const alpha = alphaValue
+		? alphaValue.endsWith('%')
+			? Number.parseFloat(alphaValue) / 100
+			: Number.parseFloat(alphaValue)
+		: 1
+	if (alpha < 0.5) return false
+
+	return (0.299 * red + 0.587 * green + 0.114 * blue) / 255 > 0.7
+}
+
+function isThemeableBackground(value) {
+	const normalized = value.replace(/\s*!important\s*$/i, '').trim()
+	const variable = normalized.match(/^var\(\s*--([\w-]+)(?:\s*,\s*(.+))?\)$/i)
+	if (!variable) return isLightColor(normalized)
+
+	const [, token, fallback] = variable
+	if (!SURFACE_TOKEN_PATTERN.test(token) || INTERACTION_TOKEN_PATTERN.test(token)) return false
+	return !fallback || isLightColor(fallback)
+}
+
+function winsInlineCascade(candidate, current) {
+	if (!current) return true
+	if (candidate.important !== current.important) return candidate.important
+	return candidate.index > current.index
+}
+
+function backgroundShorthandMayHaveImage(value) {
+	if (isThemeableBackground(value)) return false
+	const normalized = value.trim().toLowerCase()
+	return !/^(?:none|transparent|currentcolor|#[\da-f]{3,8}|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.+\))$/i.test(
+		normalized,
+	)
+}
+
+function hasThemeableInlineBackground(element) {
+	const inlineStyle = element.getAttribute('style') || ''
+	let colorDeclaration = null
+	let imageDeclaration = null
+
+	for (const [index, declaration] of inlineStyle.split(';').entries()) {
+		const match = declaration.match(/^\s*(background|background-color|background-image)\s*:\s*(.+?)\s*$/i)
+		if (!match) continue
+
+		const property = match[1].toLowerCase()
+		const important = /\s*!important\s*$/i.test(match[2])
+		const value = match[2].replace(/\s*!important\s*$/i, '').trim()
+		const candidate = { important, index, value }
+
+		if (property !== 'background-image' && winsInlineCascade(candidate, colorDeclaration)) {
+			colorDeclaration = candidate
+		}
+		if (property !== 'background-color' && winsInlineCascade(candidate, imageDeclaration)) {
+			imageDeclaration = {
+				...candidate,
+				hasImage:
+					property === 'background-image'
+						? value.toLowerCase() !== 'none'
+						: backgroundShorthandMayHaveImage(value),
+			}
+		}
+	}
+
+	return (
+		!!colorDeclaration &&
+		isThemeableBackground(colorDeclaration.value) &&
+		!imageDeclaration?.hasImage
+	)
 }
 
 function markChildSurfaces(panel, root = panel) {
-	for (const element of getMatches(root, SURFACE_SELECTOR)) {
-		if (panel.contains(element) && isLightBackground(element)) {
+	for (const element of getMatches(root, INLINE_BACKGROUND_SELECTOR)) {
+		if (panel.contains(element) && hasThemeableInlineBackground(element)) {
 			element.setAttribute(SURFACE_ATTR, '')
 		}
 	}

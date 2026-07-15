@@ -3,6 +3,7 @@ import {
 	ATTR_HIDE_FOOTER,
 	ATTR_HIDE_GPTS_PILL,
 	ATTR_HIDE_HEADER,
+	ATTR_HIDE_PINNED_PILL,
 	ATTR_HIDE_RECENTS_PILL,
 	ATTR_HIDE_UPGRADE_CHIP,
 } from './consts-attr'
@@ -10,6 +11,7 @@ import {
 	SK_TOGGLE_HIDE_FOOTER,
 	SK_TOGGLE_HIDE_GPTS_PILL,
 	SK_TOGGLE_HIDE_HEADER,
+	SK_TOGGLE_HIDE_PINNED_PILL,
 	SK_TOGGLE_HIDE_RECENTS_PILL,
 	SK_TOGGLE_HIDE_UPGRADE_CHIP,
 } from './consts-storage'
@@ -55,6 +57,17 @@ export const ELEMENTS = [
 		selector: SELECTORS.HIDE.GPTS_PILL.SELECTOR,
 		dataAttr: ATTR_HIDE_GPTS_PILL,
 		storageKey: SK_TOGGLE_HIDE_GPTS_PILL,
+		isHidden: false,
+		allowMissing: true,
+	},
+	{
+		id: SELECTORS.HIDE.PINNED_PILL.TOGGLE_ID,
+		label: 'Hide Pinned Pill',
+		subtitle: 'Remove the rounded background behind the PINNED label in the sidebar.',
+		icon: icon_badge,
+		selector: SELECTORS.HIDE.PINNED_PILL.SELECTOR,
+		dataAttr: ATTR_HIDE_PINNED_PILL,
+		storageKey: SK_TOGGLE_HIDE_PINNED_PILL,
 		isHidden: false,
 		allowMissing: true,
 	},
