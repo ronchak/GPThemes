@@ -11,6 +11,15 @@ const runtimeCleanups = []
 let started = false
 let lifecycleGeneration = 0
 
+async function injectThemeStyles() {
+	if (browser.runtime.getManifest().manifest_version !== 3) return
+
+	const response = await browser.runtime.sendMessage({ action: 'injectThemeStyles' })
+	if (response?.status !== 'success') {
+		throw new Error(response?.message || 'Theme stylesheet injection failed')
+	}
+}
+
 function resolveExtensionUrl(assetUrl) {
 	if (typeof assetUrl !== 'string') return null
 	if (/^[a-z][a-z\d+.-]*:/i.test(assetUrl)) return assetUrl
@@ -142,6 +151,8 @@ async function start() {
 	if (started || !document.body) return
 	started = true
 	const generation = ++lifecycleGeneration
+	await mountFeature('theme stylesheet', injectThemeStyles, generation)
+	if (!isCurrentLifecycle(generation)) return
 
 	await Promise.all([
 		mountFeature('theme manager', initThemes, generation),

@@ -1,4 +1,5 @@
 import { runtime } from 'webextension-polyfill'
+import themeCssUrl from 'url:../../sass/index.scss'
 import { removeItems } from '../utils/storage'
 import {
 	getCurrentBadge,
@@ -17,6 +18,10 @@ import {
 
 // Register onInstalled listener at module level (before init runs)
 runtime.onInstalled.addListener(onInstallation)
+if (!globalThis.hasBackgroundMessageListener) {
+	runtime.onMessage.addListener(onMessage)
+	globalThis.hasBackgroundMessageListener = true
+}
 
 initBackgroundScript()
 
@@ -54,12 +59,42 @@ async function onInstallation(details) {
 }
 
 // function onMessage(message, sender, sendResponse) {
-function onMessage(message, _sender, sendResponse) {
+function getThemeCssPath() {
+	return new URL(themeCssUrl, runtime.getURL('/')).pathname.replace(/^\//, '')
+}
+
+async function injectThemeStyles(sender) {
+	const tabId = sender.tab?.id
+	if (!Number.isInteger(tabId) || !globalThis.chrome?.scripting) {
+		throw new Error('Theme stylesheet injection is unavailable')
+	}
+
+	await globalThis.chrome.scripting.insertCSS({
+		files: [getThemeCssPath()],
+		target: {
+			allFrames: false,
+			frameIds: [sender.frameId || 0],
+			tabId,
+		},
+	})
+}
+
+function onMessage(message, sender, sendResponse) {
 	if (message.action === 'setBadge') {
 		updateBadgeToVersion()
 			.then(() => sendResponse({ status: 'success' }))
 			.catch((error) => {
 				console.error('❌ Badge update error:', error)
+				sendResponse({ status: 'error', message: error.message })
+			})
+		return true
+	}
+
+	if (message.action === 'injectThemeStyles') {
+		injectThemeStyles(sender)
+			.then(() => sendResponse({ status: 'success' }))
+			.catch((error) => {
+				console.error('❌ Theme stylesheet injection error:', error)
 				sendResponse({ status: 'error', message: error.message })
 			})
 		return true
@@ -92,12 +127,6 @@ async function initBackgroundScript() {
 				await setVersionBadge()
 				await setExtStoredVersion(currentVersion)
 			}
-		}
-
-		// Register msg listener
-		if (!globalThis.hasSetBadgeListener) {
-			runtime.onMessage.addListener(onMessage)
-			globalThis.hasSetBadgeListener = true
 		}
 
 		console.log('✅ Background script ready')

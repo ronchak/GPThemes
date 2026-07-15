@@ -44,8 +44,12 @@ function isLightColor(value) {
 
 	const rgb = normalized.match(/^rgba?\((.+)\)$/)
 	if (!rgb) return false
-	const channels = rgb[1].match(/(?:\d+(?:\.\d+)?|\.\d+)%?/g)
+	if (/[a-z]/i.test(rgb[1])) return false
+	const channels = rgb[1].match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?/g)
 	if (!channels || channels.length < 3) return false
+	const hasExplicitAlpha =
+		normalized.startsWith('rgba(') || rgb[1].includes('/') || rgb[1].split(',').length > 3
+	if (hasExplicitAlpha && channels.length < 4) return false
 
 	const [red, green, blue] = channels
 		.slice(0, 3)

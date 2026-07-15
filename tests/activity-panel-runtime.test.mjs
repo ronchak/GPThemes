@@ -153,6 +153,9 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	const translucentWhite = new FakeElement('div', {
 		style: 'background-color: rgb(255 255 255 / 20%)',
 	})
+	const variableAlpha = new FakeElement('div', {
+		style: 'background-color: rgb(255 255 255 / var(--host-opacity))',
+	})
 	const opaqueWhite = new FakeElement('div', {
 		style: 'background-color: rgba(255, 255, 255, 0.8)',
 	})
@@ -167,6 +170,7 @@ test('themes new inline activity surfaces without style resolution and cleans up
 		imageFallback,
 		transparentHex,
 		translucentWhite,
+		variableAlpha,
 		opaqueWhite,
 	]
 	panel.append(...surfaces)
@@ -182,6 +186,7 @@ test('themes new inline activity surfaces without style resolution and cleans up
 	assert.equal(imageFallback.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(transparentHex.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(translucentWhite.hasAttribute(SURFACE_ATTR), false)
+	assert.equal(variableAlpha.hasAttribute(SURFACE_ATTR), false)
 	assert.equal(opaqueWhite.hasAttribute(SURFACE_ATTR), true)
 
 	const outsideSurface = new FakeElement('div', {

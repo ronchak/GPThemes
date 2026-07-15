@@ -64,21 +64,32 @@ test('Hide Footer targets the current disclaimer without relying on a generic ut
 	}
 })
 
-test('full theme CSS waits until document idle in every extension manifest', async () => {
-	for (const path of [
-		'src/manifests/chromium-mv3/manifest.json',
-		'src/manifests/firefox-mv2/manifest.json',
-	]) {
-		const manifest = JSON.parse(await source(path))
+test('full theme CSS avoids the Chromium startup path and keeps Firefox idle timing', async () => {
+	const chromium = JSON.parse(await source('src/manifests/chromium-mv3/manifest.json'))
+	const firefox = JSON.parse(await source('src/manifests/firefox-mv2/manifest.json'))
+	const background = await source('src/js/background/index.js')
+	const content = await source('src/js/content.js')
+
+	for (const manifest of [chromium, firefox]) {
 		const startScript = manifest.content_scripts.find(
 			({ run_at }) => run_at === 'document_start',
 		)
-		const idleScript = manifest.content_scripts.find(({ run_at }) => run_at === 'document_idle')
-
 		assert.deepEqual(startScript.js, ['../../js/inject-theme.js'])
 		assert.equal(startScript.css, undefined)
-		assert.deepEqual(idleScript.css, ['../../sass/index.scss'])
 	}
+
+	const chromiumIdle = chromium.content_scripts.find(({ run_at }) => run_at === 'document_idle')
+	const firefoxIdle = firefox.content_scripts.find(({ run_at }) => run_at === 'document_idle')
+	assert.equal(chromiumIdle.css, undefined)
+	assert.deepEqual(firefoxIdle.css, ['../../sass/index.scss'])
+	assert.ok(chromium.permissions.includes('scripting'))
+	assert.match(
+		background,
+		/runtime\.onMessage\.addListener\(onMessage\)[\s\S]*initBackgroundScript\(\)/,
+	)
+	assert.match(background, /chrome\?\.scripting/)
+	assert.match(background, /scripting\.insertCSS/)
+	assert.match(content, /action:\s*'injectThemeStyles'/)
 })
 
 test('suggested prompts use stable runtime markers without relational host fallbacks', async () => {
